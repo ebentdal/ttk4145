@@ -1,0 +1,1 @@
+// implementere nettverksprotocoll og kommunikasjon mellom 

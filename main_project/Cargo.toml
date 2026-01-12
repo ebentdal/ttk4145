@@ -1,0 +1,9 @@
+[package]
+name = "main_project"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+network-rust = { git = "https://github.com/TTK4145/network-rust", tag = "v0.3.0" }
+driver-rust = { git = "https://github.com/TTK4145/driver-rust", tag = "v0.1.0" }
+tokio = { version = "1", features = ["full"] }
