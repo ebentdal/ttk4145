@@ -7,3 +7,4 @@ edition = "2024"
 network-rust = { git = "https://github.com/TTK4145/network-rust", tag = "v0.3.0" }
 driver-rust = { git = "https://github.com/TTK4145/driver-rust", tag = "v0.1.0" }
 tokio = { version = "1", features = ["full"] }
+rust-fsm = { version = "0.8", default-features = false, features = ["dsl"] }
