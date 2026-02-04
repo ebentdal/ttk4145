@@ -5,6 +5,9 @@ mod types;
 #[tokio::main]
 async fn main() {
     println!("Main started");
-    let mut elevator1 = fsm::init_fsm().await;
+    let mut elevator1 = fsm::ElevatorFSM::new("localhost:15657").await;
+    elevator1.transitions(fsm::Event::NewOrder(1)).await;
+    elevator1.transitions(fsm::Event::NewOrder(1)).await;
+    elevator1.transitions(fsm::Event::ArrivedAtFloor).await;
     // fsm::fsm_go_to_floor(2, &elevator1).await;
 }
