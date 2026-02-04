@@ -1,44 +1,40 @@
 use rust_fsm::*;
 
 pub enum Input {
+    NewTargetFloor(u8),
+    CallButtonPressed(u8),
+    CabButtonPressed(u8),
+    DoorUpdate(bool),
+    Obstructed(bool),
+    FloorReached,
     Initialized,
-    FloorReached(u8),
-    TargetSelected(u8),
-    DoorTimeout,
-    Obstruction,  
-    NewOrder(Option<u8>)
-}   
+}
 
 pub enum State {
     Init,
     Idle,
     WorkingOrder,
-    DoorOpen,
+    Crashed,
 }
 
 pub enum Output {
-    SetMotor(Direction),
-    OpenDoor,
-    CloseDoor,
-    ClearRequestsAtFloor(u8),
-     NewOrder(Option<u8>)
+    SetMotor(u8),
+    SetDoor(u8),
+    SetLights(u8),
 }
 
 state_machine! {
-    #[state_machine(input(crate::types::Input),
-                    state(crate::types::State),
-                    output(crate::types::Output))]
-
+    #[state_machine(
+        input(crate::types::Input),
+        state(crate::types::State),
+        output(crate::types::Output)
+    )]
+    
     ElevatorFSM(Init)
 
     Init(Initialized) => Idle,
 
-    Idle(NewOrder) => WorkingOrder [NewOrder],
+    Idle(NewTargetFloor) => WorkingOrder [SetMotor],
 
-    WorkingOrder(FloorReached(_)) => DoorOpen [SetMotor(Direction::Stop), OpenDoor],
-
-    DoorOpen => {
-        DoorTimeout => Idle [CloseDoor],
-        Obstruction => DoorOpen,
-    } 
+    WorkingOrder(FloorReached) => Idle [SetDoor],
 }
