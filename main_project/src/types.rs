@@ -5,12 +5,14 @@ pub enum Input {
     FloorReached(u8),
     TargetSelected(u8),
     DoorTimeout,
+    Obstruction,  
+    NewOrder(Option<u8>)
 }   
 
 pub enum State {
     Init,
     Idle,
-    Moving,
+    WorkingOrder,
     DoorOpen,
 }
 
@@ -19,21 +21,24 @@ pub enum Output {
     OpenDoor,
     CloseDoor,
     ClearRequestsAtFloor(u8),
+     NewOrder(Option<u8>)
 }
 
 state_machine! {
     #[state_machine(input(crate::types::Input),
                     state(crate::types::State),
                     output(crate::types::Output))]
+
     ElevatorFSM(Init)
 
-    Init(Initialized) => Idle;
+    Init(Initialized) => Idle,
 
-    Idle(TargetSelected(_)) => MovingUp   [SetMotor(Direction::Up)];
-    Idle(TargetSelected(_)) => MovingDown [SetMotor(Direction::Down)];
+    Idle(NewOrder) => WorkingOrder [NewOrder],
 
-    MovingUp(FloorReached(_))   => DoorOpen [SetMotor(Direction::Stop), OpenDoor];
-    MovingDown(FloorReached(_)) => DoorOpen [SetMotor(Direction::Stop), OpenDoor];
+    WorkingOrder(FloorReached(_)) => DoorOpen [SetMotor(Direction::Stop), OpenDoor],
 
-    DoorOpen(DoorTimeout) => Idle [CloseDoor];
+    DoorOpen => {
+        DoorTimeout => Idle [CloseDoor],
+        Obstruction => DoorOpen,
+    } 
 }
