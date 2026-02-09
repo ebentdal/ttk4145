@@ -1,6 +1,7 @@
 mod config;
 mod fsm;
 mod types;
+mod networkhandler;
 
 #[tokio::main]
 async fn main() {
@@ -9,5 +10,6 @@ async fn main() {
     elevator1.transitions(fsm::Event::NewOrder(1)).await;
     elevator1.transitions(fsm::Event::NewOrder(1)).await;
     elevator1.transitions(fsm::Event::ArrivedAtFloor).await;
+    
     // fsm::fsm_go_to_floor(2, &elevator1).await;
 }

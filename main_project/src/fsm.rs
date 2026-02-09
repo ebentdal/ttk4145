@@ -6,25 +6,6 @@ use driver_rust::elevio::elev::{DIRN_DOWN, DIRN_STOP, DIRN_UP, CAB, HALL_UP, HAL
 use std::time::Duration;
 use tokio::time::sleep;
 
-pub async fn init_fsm(addr: &str) -> (Elevator, u8, bool) {
-    println!("FSM initialized");
-    let mut elevator = Elevator::init(addr, config::NUM_FLOORS).unwrap();
-    
-    loop {
-        Elevator::motor_direction(&mut elevator, elevio::elev::DIRN_DOWN);
-        match Elevator::floor_sensor(&elevator) {
-            Some(floor) => {
-                Elevator::motor_direction(&mut elevator, elevio::elev::DIRN_STOP);
-                let obstruction = Elevator::obstruction(&elevator);
-                return (elevator, floor, obstruction);
-            },
-            None => {
-                println!("Elevator is between floors");
-            }
-        }
-    }
-}
-
 pub struct Order{
     pub floor: u8,
     pub order_type: ButtonType
@@ -59,7 +40,7 @@ pub enum Event{
 
 impl ElevatorFSM {
     pub async fn new(addr: &str) -> Self {
-        let (fsm, current_floor, obstruction)  = init_fsm(addr).await;
+        let (fsm, current_floor, obstruction)  = Self::init_fsm(addr).await;
         Self {
             queue: Vec::new(),
             fsm: fsm,
@@ -67,6 +48,25 @@ impl ElevatorFSM {
             prev_floor: current_floor,
             elev_id: addr.to_string(),
             state: State::Init,
+        }
+    }
+
+    async fn init_fsm(addr: &str) -> (Elevator, u8, bool) {
+        println!("FSM initialized");
+        let mut elevator = Elevator::init(addr, config::NUM_FLOORS).unwrap();
+        
+        loop {
+            Elevator::motor_direction(&mut elevator, elevio::elev::DIRN_DOWN);
+            match Elevator::floor_sensor(&elevator) {
+                Some(floor) => {
+                    Elevator::motor_direction(&mut elevator, elevio::elev::DIRN_STOP);
+                    let obstruction = Elevator::obstruction(&elevator);
+                    return (elevator, floor, obstruction);
+                },
+                None => {
+                    println!("Elevator is between floors");
+                }
+            }
         }
     }
 
@@ -116,10 +116,8 @@ impl ElevatorFSM {
 
     pub async fn arrived_at_floor(&mut self) {
         Elevator::door_light(&self.fsm, true); 
-        println!("Heil");
-        while(Elevator::obstruction(&self.fsm)){};
+        while(Elevator::obstruction(&self.fsm)){sleep(Duration::from_micros(40)).await};
         sleep(Duration::from_secs(3)).await;
-        println!("Heil2");
         Elevator::door_light(&self.fsm, false);
     }
 
