@@ -4,6 +4,7 @@ use crossbeam_channel as cbc;
 use tokio;
 use serde::{Serialize, Deserialize};
 use crate::config::MSG_PORT;
+use rand::Rng;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeartbeatMSG{
@@ -42,11 +43,12 @@ impl Heartbeat {
              .unwrap()
              .ip();
         println!("local ip {}", local_ip);
-
+        
         let (tx, rx) = Self::start_channels().await;
-
+        let mut rng = rand::thread_rng();
+        let num = rng.gen_range(0..10000);
         let heartbeatmsg = HeartbeatMSG{
-                ID: local_ip.to_string(),
+                ID: num.to_string(),
                 ExternalOrders: Vec::new(),
                 InternalOrders: Vec::new(),
                 Floor: 0,
@@ -86,14 +88,15 @@ impl Heartbeat {
 
      pub async fn network_controller(&mut self){
     
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         
         self.HeartbeatMSG.counter += 1; 
         self.TX.send(self.HeartbeatMSG.clone()).unwrap();
         
         println!("Sent heartbeat with counter: {}", self.HeartbeatMSG.counter);
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         
-        match self.RX.recv_timeout(std::time::Duration::from_millis(100)) {
+        match self.RX.recv_timeout(std::time::Duration::from_millis(10)) {
             Ok(msg) => println!("received {:#?}", msg),
             Err(e) => println!("No message received: {:?}", e),
         }

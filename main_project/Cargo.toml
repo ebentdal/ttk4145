@@ -10,3 +10,4 @@ tokio = { version = "1", features = ["full"] }
 rust-fsm = { version = "0.8", default-features = false, features = ["dsl"] }
 crossbeam-channel = "0.5.15"
 serde = { version = "1", features = ["derive"] }
+rand = "0.8"
