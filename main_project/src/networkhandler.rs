@@ -97,7 +97,7 @@ impl Heartbeat {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         
         match self.RX.recv_timeout(std::time::Duration::from_millis(10)) {
-            Ok(msg) => println!("received {:#?}", msg),
+            Ok(msg) => if (msg.ID != self.HeartbeatMSG.ID){println!("received {:#?}", msg)},
             Err(e) => println!("No message received: {:?}", e),
         }
      }
