@@ -71,10 +71,6 @@ impl ElevatorFSM {
                     } else {
                         Elevator::motor_direction(&self.fsm, DIRN_STOP);
                         self.prev_floor = target_floor;
-                        if !self.queue.is_empty() {
-                            let order = self.queue.remove(0);
-                            println!("Processing order for floor {}", order.floor);
-                        }
                         return;
                     }
                 }
@@ -82,6 +78,7 @@ impl ElevatorFSM {
                     println!("Elevator is between floors");
                 }
             }
+            sleep(Duration::from_millis(100)).await;
         }
     }
 

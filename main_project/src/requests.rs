@@ -62,14 +62,11 @@ impl RequestAssigner {
     }
 
     pub async fn send_to_own_fsm(&self, fsm: &mut ElevatorFSM, queue: Vec<Order>) {
-        //TODO send orders to own fsm
-        //TODO iterate over json output
         println!("send_to_own_fsm called with {} orders", queue.len());
         for order in queue {
-            println!("Sending order to FSM: floor {}", order.floor);
-            fsm.transitions(Event::NewOrder(order.floor)).await;
+            println!("Adding order to queue: floor {}", order.floor);
+            fsm.queue.push(order);
         }
-        
     }
 
 

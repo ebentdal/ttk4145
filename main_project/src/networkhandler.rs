@@ -71,7 +71,7 @@ impl Heartbeat {
                     //println!("received {:#?}", msg);
                 }
             }
-            Err(e) => println!("No message received: {:?}", e),
+            Err(e) =>  {}, //println!("No message received: {:?}", e),
         }
     }
 
