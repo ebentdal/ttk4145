@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use serde_json::to_string_pretty;
 use tokio::process::Command;
 use std::process::Stdio;
 use crate::types::{
-    Behaviour, Direction, ElevatorState, Heartbeat, Message, RequestAssigner, Roles,
+    Behaviour, Direction, ElevatorState, Heartbeat, Message, RequestAssigner, Roles, Order,
 };
 
 impl RequestAssigner {
@@ -11,6 +12,7 @@ impl RequestAssigner {
     }
 
     pub async fn process_heartbeat(&mut self, msg: Heartbeat) {
+        let id = msg.id();
         let new_state = ElevatorState {
             behaviour: msg.status().clone(),
             floor: msg.floor(),
@@ -26,31 +28,8 @@ impl RequestAssigner {
         self.message.states.insert(msg.id().to_string(), new_state);
     }
 
-    pub async fn order_assigner(&self) {
-        let id1 = ElevatorState {
-            behaviour: Behaviour::Moving,
-            floor: 2,
-            direction: Direction::Up,
-            cab_requests: vec![false, false, true, true],
-        };
-
-        let id2 = ElevatorState {
-            behaviour: Behaviour::Idle,
-            floor: 0,
-            direction: Direction::Stop,
-            cab_requests: vec![false, false, false, false],
-        };
-
-        let mut states = HashMap::new();
-        states.insert("one".to_string(), id1);
-        states.insert("two".to_string(), id2);
-
-        let msg = Message {
-            hall_requests: vec![[false, false], [true, false], [false, false], [false, true]],
-            states,
-        };
-
-        let json_str = serde_json::to_string_pretty(&msg).unwrap();
+    pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
+        let json_str = serde_json::to_string_pretty(&self.message).unwrap();
         println!("Message: {}", json_str);
 
         let child = Command::new("./hall_request_assigner")
@@ -64,9 +43,44 @@ impl RequestAssigner {
             .unwrap();
 
         let output = child.wait_with_output().await.unwrap();
-        let formattedoutput = String::from_utf8_lossy(&output.stdout);
-        let prettyoutput: String = serde_json::to_string_pretty(&formattedoutput).unwrap();
-
-        println!("Stdout: {}", prettyoutput);
+        
+        let assignments: HashMap<String, Vec<Order>> = serde_json::from_slice(&output.stdout).unwrap();
+        //let printAssignments = to_string_pretty(&assignments);
+        // let formattedoutput = String::from_utf8_lossy(&output.stdout);
+        // let prettyoutput: String = serde_json::to_string_pretty(&formattedoutput).unwrap();
+        //println!("Stdout: {}", printAssignments);
+        return assignments;
     }
+
+    pub async fn master(&self) {
+        //TODO call the cost function, send gossip, and its own orders to its fsm
+    }
+
+    pub async fn slave(&self) {
+        //TODO recieve orders and send to fsm, check gossip 
+    }
+
+    pub async fn send_to_own_fsm(&self, queue: Vec<Order>) {
+        //TODO send orders to own fsm
+        //TODO iterate over json output
+        
+    }
+
+
+
+
 }
+
+        // let id1 = ElevatorState {
+        //     behaviour: Behaviour::Moving,
+        //     floor: 2,
+        //     direction: Direction::Up,
+        //     cab_requests: vec![false, false, true, true],
+        // };
+
+        // let id2 = ElevatorState {
+        //     behaviour: Behaviour::Idle,
+        //     floor: 0,
+        //     direction: Direction::Stop,
+        //     cab_requests: vec![false, false, false, false],
+        // };

@@ -75,6 +75,10 @@ impl Heartbeat {
         }
     }
 
+    pub async fn send_heartbeat_to_request(&self) {
+        //TODO send heartbeat message to requests.rs
+    }
+
     pub fn floor(&self) -> u8 {
         self.msg.floor
     }
