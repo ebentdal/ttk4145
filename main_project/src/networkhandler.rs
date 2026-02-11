@@ -1,74 +1,41 @@
 use network_rust::udpnet;
 use std::net;
 use crossbeam_channel as cbc;
-use tokio;
-use serde::{Serialize, Deserialize};
 use crate::config::MSG_PORT;
+use crate::types::{Behaviour, HeartbeatMSG, Heartbeat, Roles};
 use rand::Rng;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HeartbeatMSG{
-    ID: String,
-    ExternalOrders: Vec<u8>,
-    InternalOrders: Vec<u8>,
-    Floor: u8,
-    Direction: u8,
-    StatusFlag: Status,
-    counter: i32,
-    Role: Roles,
-}
-
-pub struct Heartbeat{
-    HeartbeatMSG: HeartbeatMSG,
-    RX: cbc::Receiver<HeartbeatMSG>,
-    TX: cbc::Sender<HeartbeatMSG>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Roles {
-    Master,
-    Slave,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Status {
-    //Working,
-    Idle,
-   // OutOfOrder,
-    Moving,
-    DoorOpen
-}
-
 impl Heartbeat {
-     pub async fn new() -> Self { 
-        let local_ip =  net::TcpStream::connect("8.8.8.8:53").unwrap()
-             .local_addr()
-             .unwrap()
-             .ip();
+    pub async fn new() -> Self {
+        let local_ip = net::TcpStream::connect("8.8.8.8:53")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .ip();
         println!("local ip {}", local_ip);
-        //TODO throw error if not found
-        
+
         let (tx, rx) = Self::start_channels().await;
         let mut rng = rand::thread_rng();
         let num = rng.gen_range(0..10000);
-        let heartbeatmsg = HeartbeatMSG{
-                ID: num.to_string(),
-                ExternalOrders: Vec::new(),
-                InternalOrders: Vec::new(),
-                Floor: 0,
-                Direction: 0,
-                StatusFlag: Status::Idle,
-                counter: 0,
-                Role: Roles::Slave,
+        let heartbeatmsg = HeartbeatMSG {
+            id: num.to_string(),
+            external_orders: Vec::new(),
+            internal_orders: Vec::new(),
+            floor: 0,
+            direction: 0,
+            status: Behaviour::Idle,
+            counter: 0,
+            role: Roles::Slave,
         };
 
         Self {
-                HeartbeatMSG: heartbeatmsg,
-                TX: tx,
-                RX: rx,
-            }
-     }
+            msg: heartbeatmsg,
+            tx,
+            rx,
+        }
+    }
 
-     pub async fn start_channels() -> (cbc::Sender<HeartbeatMSG>, cbc::Receiver<HeartbeatMSG>) {
+    pub async fn start_channels() -> (cbc::Sender<HeartbeatMSG>, cbc::Receiver<HeartbeatMSG>) {
         let (bcast_tx, bcast_tx_rx) = cbc::unbounded::<HeartbeatMSG>();
         tokio::spawn(async move {
             if udpnet::bcast::tx(MSG_PORT, bcast_tx_rx).is_err() {
@@ -82,48 +49,49 @@ impl Heartbeat {
                 panic!("Broadcast RX failed");
             }
         });
-        
+
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         println!("Network channels initialized");
-        
-        return (bcast_tx, bcast_rx);
-     }
 
-     pub async fn network_controller(&mut self){
-    
+        (bcast_tx, bcast_rx)
+    }
+
+    pub async fn network_controller(&mut self) {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-        
-        self.HeartbeatMSG.counter += 1; 
-        self.TX.send(self.HeartbeatMSG.clone()).unwrap();
-        
-        println!("Sent heartbeat with counter: {}", self.HeartbeatMSG.counter);
+
+        self.msg.counter += 1;
+        self.tx.send(self.msg.clone()).unwrap();
+
+        println!("Sent heartbeat with counter: {}", self.msg.counter);
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-        
-        match self.RX.recv_timeout(std::time::Duration::from_millis(10)) {
-            Ok(msg) => if (msg.ID != self.HeartbeatMSG.ID){println!("received {:#?}", msg)},
+
+        match self.rx.recv_timeout(std::time::Duration::from_millis(10)) {
+            Ok(msg) => {
+                if msg.id != self.msg.id {
+                    println!("received {:#?}", msg);
+                }
+            }
             Err(e) => println!("No message received: {:?}", e),
         }
-     }
+    }
 
-     pub async fn sendHeartbeatMessage(&self, msg: HeartbeatMSG) {
-        
-     }
-      pub fn floor(&self) -> u8 {
-        self.HeartbeatMSG.Floor
+    pub fn floor(&self) -> u8 {
+        self.msg.floor
     }
 
     pub fn direction(&self) -> u8 {
-        self.HeartbeatMSG.Direction
+        self.msg.direction
     }
 
-    pub fn status(&self) -> &Status {
-        &self.HeartbeatMSG.StatusFlag
+    pub fn status(&self) -> &Behaviour {
+        &self.msg.status
     }
 
     pub fn id(&self) -> &str {
-        &self.HeartbeatMSG.ID
+        &self.msg.id
     }
-    pub fn internalOrders(&self) -> &Vec<u8> {
-        &self.HeartbeatMSG.InternalOrders
+
+    pub fn internal_orders(&self) -> &Vec<u8> {
+        &self.msg.internal_orders
     }
 }
