@@ -43,6 +43,7 @@ impl Heartbeat {
              .unwrap()
              .ip();
         println!("local ip {}", local_ip);
+        //TODO throw error if not found
         
         let (tx, rx) = Self::start_channels().await;
         let mut rng = rand::thread_rng();
