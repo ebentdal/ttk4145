@@ -31,9 +31,11 @@ pub enum Roles {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Status {
-    Working,
+    //Working,
     Idle,
-    OutOfOrder
+   // OutOfOrder,
+    Moving,
+    DoorOpen
 }
 
 impl Heartbeat {
@@ -103,4 +105,25 @@ impl Heartbeat {
         }
      }
 
+     pub async fn sendHeartbeatMessage(&self, msg: HeartbeatMSG) {
+        
+     }
+      pub fn floor(&self) -> u8 {
+        self.HeartbeatMSG.Floor
+    }
+
+    pub fn direction(&self) -> u8 {
+        self.HeartbeatMSG.Direction
+    }
+
+    pub fn status(&self) -> &Status {
+        &self.HeartbeatMSG.StatusFlag
+    }
+
+    pub fn id(&self) -> &str {
+        &self.HeartbeatMSG.ID
+    }
+    pub fn internalOrders(&self) -> &Vec<u8> {
+        &self.HeartbeatMSG.InternalOrders
+    }
 }
