@@ -71,12 +71,29 @@ impl ElevatorFSM {
                     } else {
                         Elevator::motor_direction(&self.fsm, DIRN_STOP);
                         self.prev_floor = target_floor;
+                        if !self.queue.is_empty() {
+                            let order = self.queue.remove(0);
+                            println!("Processing order for floor {}", order.floor);
+                        }
                         return;
                     }
                 }
                 None => {
                     println!("Elevator is between floors");
                 }
+            }
+        }
+    }
+
+     pub async fn run_queue(&mut self) {
+        loop {
+            if let Some(order) = self.queue.first() { // look at the next order
+                println!("Next order: floor {}", order.floor);
+                self.transitions(Event::NewOrder(order.floor)).await;
+                self.transitions(Event::ArrivedAtFloor).await;
+                self.queue.remove(0); // remove order after processing
+            } else {
+                sleep(Duration::from_millis(100)).await; // no orders, wait a bit
             }
         }
     }

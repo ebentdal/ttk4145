@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use serde_json::to_string_pretty;
+use crate::types::{ElevatorFSM, Event, Order};
 use tokio::process::Command;
 use std::process::Stdio;
 use crate::types::{
-    Behaviour, Direction, ElevatorState, Heartbeat, Message, RequestAssigner, Roles, Order,
+    Behaviour, Direction, ElevatorState, Heartbeat, Message, RequestAssigner, Roles,
 };
 
 impl RequestAssigner {
@@ -60,9 +61,14 @@ impl RequestAssigner {
         //TODO recieve orders and send to fsm, check gossip 
     }
 
-    pub async fn send_to_own_fsm(&self, queue: Vec<Order>) {
+    pub async fn send_to_own_fsm(&self, fsm: &mut ElevatorFSM, queue: Vec<Order>) {
         //TODO send orders to own fsm
         //TODO iterate over json output
+        println!("send_to_own_fsm called with {} orders", queue.len());
+        for order in queue {
+            println!("Sending order to FSM: floor {}", order.floor);
+            fsm.transitions(Event::NewOrder(order.floor)).await;
+        }
         
     }
 
