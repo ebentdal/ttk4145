@@ -29,10 +29,7 @@ async fn main() {
     ).await;
 
  
-    let test_queue_external = vec![
-        Order { floor: 2, order_type: ButtonType::CabCall },
-        Order { floor: 3, order_type: ButtonType::CabCall },
-    ];
+    
     let test_queue_internal = vec![
         Order { floor: 1, order_type: ButtonType::CabCall },
     ];
@@ -60,6 +57,9 @@ async fn main() {
     network.msg.external_orders = test_queue_external2;
     network.msg.counter += 1;
     loop {
-        network.network_controller().await;
+        if let Some(msg_recieved) = network.network_controller().await {
+            request_assigner.send_to_own_fsm(&mut elevator1, msg_recieved).await;
+            elevator1.run_queue().await;
+        }
     }
 }

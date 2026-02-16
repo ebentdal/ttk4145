@@ -64,7 +64,14 @@ impl RequestAssigner {
     }
 
     pub async fn send_to_own_fsm(&self, fsm: &mut ElevatorFSM, heartbeat: HeartbeatMSG) {
-        println!("send_to_own_fsm called with {} orders", heartbeat.external_orders.len());
+        // Skip if this is a duplicate message (same counter as before)
+        if heartbeat.counter == fsm.last_received_msg_counter {
+            println!("Duplicate message with counter {}, skipping", heartbeat.counter);
+            return;
+        }
+        
+        fsm.last_received_msg_counter = heartbeat.counter;
+        println!("send_to_own_fsm called with {} orders (counter: {})", heartbeat.external_orders.len(), heartbeat.counter);
         for order in heartbeat.external_orders {
             println!("Adding order to queue: floor {}", order.floor);
             fsm.queue.push(order);
