@@ -2,7 +2,7 @@ use network_rust::udpnet;
 use std::net;
 use crossbeam_channel as cbc;
 use crate::config::MSG_PORT;
-use crate::types::{Behaviour, HeartbeatMSG, Heartbeat, Roles};
+use crate::types::*;
 use rand::Rng;
 
 impl Heartbeat {
@@ -95,7 +95,7 @@ impl Heartbeat {
         &self.msg.id
     }
 
-    pub fn internal_orders(&self) -> &Vec<u8> {
+    pub fn internal_orders(&self) -> &Vec<Order> {
         &self.msg.internal_orders
     }
 }
