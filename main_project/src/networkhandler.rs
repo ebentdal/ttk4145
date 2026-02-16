@@ -59,7 +59,6 @@ impl Heartbeat {
     pub async fn network_controller(&mut self) {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-        self.msg.counter += 1;
         self.tx.send(self.msg.clone()).unwrap();
 
         //println!("Sent heartbeat with counter: {}", self.msg.counter);
@@ -68,7 +67,7 @@ impl Heartbeat {
         match self.rx.recv_timeout(std::time::Duration::from_millis(10)) {
             Ok(msg) => {
                 if msg.id != self.msg.id {
-                    //println!("received {:#?}", msg);
+                    println!("received {:#?}", msg);
                 }
             }
             Err(e) =>  {}, //println!("No message received: {:?}", e),

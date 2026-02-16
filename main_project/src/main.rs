@@ -6,6 +6,8 @@ mod requests;
 
 use types::*;
 
+use tokio::time::{timeout, Duration};
+
 #[tokio::main]
 async fn main() {
     println!("Main started");
@@ -29,22 +31,34 @@ async fn main() {
  
     let test_queue_external = vec![
         Order { floor: 2, order_type: ButtonType::CabCall },
-        Order { floor: 0, order_type: ButtonType::CabCall },
-        Order { floor: 1, order_type: ButtonType::CabCall },
+        Order { floor: 3, order_type: ButtonType::CabCall },
     ];
     let test_queue_internal = vec![
         Order { floor: 1, order_type: ButtonType::CabCall },
     ];
 
-
-
-
-    let mut fsm_handle = tokio::spawn(async move {
-        elevator1.run_queue().await;
-    });
+    //let mut fsm_handle = tokio::spawn(async move {
+    //    elevator1.run_queue().await;
+    //});
 
     let mut network = Heartbeat::new().await;
     network.msg.external_orders = test_queue_external;
+    network.msg.counter += 1;
+
+    let phase1 = async {
+        loop {
+            network.network_controller().await;
+        }
+    };
+    timeout(Duration::from_secs(6), phase1).await;
+
+
+    let test_queue_external2 = vec![
+        Order { floor: 0, order_type: ButtonType::CabCall },
+        Order { floor: 1, order_type: ButtonType::CabCall },
+    ];
+    network.msg.external_orders = test_queue_external2;
+    network.msg.counter += 1;
     loop {
         network.network_controller().await;
     }
