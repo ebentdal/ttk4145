@@ -30,7 +30,7 @@ async fn main() {
     let test_queue_external = vec![
         Order { floor: 2, order_type: ButtonType::CabCall },
         Order { floor: 0, order_type: ButtonType::CabCall },
-        Order { floor: 3, order_type: ButtonType::CabCall },
+        Order { floor: 1, order_type: ButtonType::CabCall },
     ];
     let test_queue_internal = vec![
         Order { floor: 1, order_type: ButtonType::CabCall },

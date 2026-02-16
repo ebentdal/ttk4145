@@ -3,9 +3,7 @@ use serde_json::to_string_pretty;
 use crate::types::{ElevatorFSM, Event, Order};
 use tokio::process::Command;
 use std::process::Stdio;
-use crate::types::{
-    Behaviour, Direction, ElevatorState, Heartbeat, Message, RequestAssigner, Roles, HeartbeatMSG
-};
+use crate::types::*;
 
 impl RequestAssigner {
     pub async fn new(id: String, role: Roles, message: Message) -> Self {
@@ -23,7 +21,11 @@ impl RequestAssigner {
                 2 => Direction::Down,
                 _ => Direction::Stop,
             },
-            cab_requests: msg.internal_orders().iter().map(|&x| x == 1).collect(),
+            cab_requests: msg
+                .internal_orders()
+                .iter()
+                .map(|o| matches!(o.order_type, ButtonType::CabCall))
+                .collect(),
         };
 
         self.message.states.insert(msg.id().to_string(), new_state);
