@@ -59,8 +59,7 @@ impl Heartbeat {
     pub async fn network_controller(&mut self) -> Option<HeartbeatMSG> {
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-    self.msg.counter += 1;
-    self.tx.send(self.msg.clone()).unwrap();
+        self.tx.send(self.msg.clone()).unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 

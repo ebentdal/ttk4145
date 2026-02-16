@@ -6,6 +6,8 @@ mod requests;
 
 use types::*;
 
+use tokio::time::{timeout, Duration};
+
 #[tokio::main]
 async fn main() {
     println!("Main started");
@@ -32,12 +34,28 @@ async fn main() {
         Order { floor: 1, order_type: ButtonType::CabCall },
     ];
 
-
-
-
-    
+    //let mut fsm_handle = tokio::spawn(async move {
+    //    elevator1.run_queue().await;
+    //});
 
     let mut network = Heartbeat::new().await;
+    network.msg.external_orders = test_queue_external;
+    network.msg.counter += 1;
+
+    let phase1 = async {
+        loop {
+            network.network_controller().await;
+        }
+    };
+    timeout(Duration::from_secs(6), phase1).await;
+
+
+    let test_queue_external2 = vec![
+        Order { floor: 0, order_type: ButtonType::CabCall },
+        Order { floor: 1, order_type: ButtonType::CabCall },
+    ];
+    network.msg.external_orders = test_queue_external2;
+    network.msg.counter += 1;
     loop {
         if let Some(msg_recieved) = network.network_controller().await {
             request_assigner.send_to_own_fsm(&mut elevator1, msg_recieved).await;
