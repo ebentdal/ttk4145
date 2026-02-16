@@ -67,8 +67,8 @@ pub enum Direction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeartbeatMSG {
     pub id: String,
-    pub external_orders: Vec<u8>,
-    pub internal_orders: Vec<u8>,
+    pub external_orders: Vec<Order>,
+    pub internal_orders: Vec<Order>,
     pub floor: u8,
     pub direction: u8,
     pub status: Behaviour,

@@ -3,9 +3,7 @@ use serde_json::to_string_pretty;
 use crate::types::{ElevatorFSM, Event, Order};
 use tokio::process::Command;
 use std::process::Stdio;
-use crate::types::{
-    Behaviour, Direction, ElevatorState, Heartbeat, Message, RequestAssigner, Roles,
-};
+use crate::types::*;
 
 impl RequestAssigner {
     pub async fn new(id: String, role: Roles, message: Message) -> Self {
@@ -23,7 +21,11 @@ impl RequestAssigner {
                 2 => Direction::Down,
                 _ => Direction::Stop,
             },
-            cab_requests: msg.internal_orders().iter().map(|&x| x == 1).collect(),
+            cab_requests: msg
+                .internal_orders()
+                .iter()
+                .map(|o| matches!(o.order_type, ButtonType::CabCall))
+                .collect(),
         };
 
         self.message.states.insert(msg.id().to_string(), new_state);
@@ -61,9 +63,9 @@ impl RequestAssigner {
         //TODO recieve orders and send to fsm, check gossip 
     }
 
-    pub async fn send_to_own_fsm(&self, fsm: &mut ElevatorFSM, queue: Vec<Order>) {
-        println!("send_to_own_fsm called with {} orders", queue.len());
-        for order in queue {
+    pub async fn send_to_own_fsm(&self, fsm: &mut ElevatorFSM, heartbeat: HeartbeatMSG) {
+        println!("send_to_own_fsm called with {} orders", heartbeat.external_orders.len());
+        for order in heartbeat.external_orders {
             println!("Adding order to queue: floor {}", order.floor);
             fsm.queue.push(order);
         }
