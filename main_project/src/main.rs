@@ -30,7 +30,7 @@ async fn main() {
 
 
     let mut network = Heartbeat::new().await;
-    send_to_other_computer(&mut network).await;
+
     
 
     loop {
@@ -42,7 +42,12 @@ async fn main() {
 }
 
 
-async fn send_to_other_computer(&network: &mut Heartbeat) {
+async fn send_to_other_computer(network: &mut Heartbeat) {
+    let test_queue_external= vec![
+        Order { floor: 2, order_type: ButtonType::CabCall },
+        Order { floor: 3, order_type: ButtonType::CabCall },
+    ];
+    
     network.msg.external_orders = test_queue_external;
     network.msg.counter += 1;
 
