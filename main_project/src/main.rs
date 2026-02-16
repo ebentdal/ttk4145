@@ -36,25 +36,15 @@ async fn main() {
         Order { floor: 1, order_type: ButtonType::CabCall },
     ];
 
-    let ex_heartbeat = HeartbeatMSG {
-        id: "10.10.10.0".to_string(),   
-        external_orders: test_queue_external, 
-        internal_orders: test_queue_internal, 
-        floor: 2,               
-        direction: 0,  
-        status: Behaviour::Idle,
-        counter: 0,
-        role: Roles::Slave,
-    };
 
 
-    request_assigner.send_to_own_fsm(&mut elevator1, ex_heartbeat).await;
 
     let mut fsm_handle = tokio::spawn(async move {
         elevator1.run_queue().await;
     });
 
     let mut network = Heartbeat::new().await;
+    network.msg.external_orders = test_queue_external;
     loop {
         network.network_controller().await;
     }
