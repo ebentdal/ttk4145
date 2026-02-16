@@ -27,11 +27,7 @@ async fn main() {
     ).await;
 
  
-    let test_queue_external = vec![
-        Order { floor: 2, order_type: ButtonType::CabCall },
-        Order { floor: 0, order_type: ButtonType::CabCall },
-        Order { floor: 1, order_type: ButtonType::CabCall },
-    ];
+    
     let test_queue_internal = vec![
         Order { floor: 1, order_type: ButtonType::CabCall },
     ];
@@ -39,13 +35,13 @@ async fn main() {
 
 
 
-    let mut fsm_handle = tokio::spawn(async move {
-        elevator1.run_queue().await;
-    });
+    
 
     let mut network = Heartbeat::new().await;
-    network.msg.external_orders = test_queue_external;
     loop {
-        network.network_controller().await;
+        if let Some(msg_recieved) = network.network_controller().await {
+            request_assigner.send_to_own_fsm(&mut elevator1, msg_recieved).await;
+            elevator1.run_queue().await;
+        }
     }
 }

@@ -56,24 +56,20 @@ impl Heartbeat {
         (bcast_tx, bcast_rx)
     }
 
-    pub async fn network_controller(&mut self) {
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    pub async fn network_controller(&mut self) -> Option<HeartbeatMSG> {
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-        self.msg.counter += 1;
-        self.tx.send(self.msg.clone()).unwrap();
+    self.msg.counter += 1;
+    self.tx.send(self.msg.clone()).unwrap();
 
-        //println!("Sent heartbeat with counter: {}", self.msg.counter);
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-        match self.rx.recv_timeout(std::time::Duration::from_millis(10)) {
-            Ok(msg) => {
-                if msg.id != self.msg.id {
-                    //println!("received {:#?}", msg);
-                }
-            }
-            Err(e) =>  {}, //println!("No message received: {:?}", e),
-        }
+    match self.rx.recv_timeout(std::time::Duration::from_millis(100)) {
+        Ok(msg) if msg.id != self.msg.id => Some(msg),
+        _ => None,
     }
+}
+
 
     pub async fn send_heartbeat_to_request(&self) {
         //TODO send heartbeat message to requests.rs

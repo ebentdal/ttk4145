@@ -16,6 +16,7 @@ impl ElevatorFSM {
             prev_floor: current_floor,
             elev_id: addr.to_string(),
             state: ElevState::Init,
+            last_received_msg_counter: 0,
         }
     }
 
@@ -83,16 +84,14 @@ impl ElevatorFSM {
     }
 
      pub async fn run_queue(&mut self) {
-        loop {
-            if let Some(order) = self.queue.first() { // look at the next order
-                println!("Next order: floor {}", order.floor);
-                self.transitions(Event::NewOrder(order.floor)).await;
-                self.transitions(Event::ArrivedAtFloor).await;
-                self.queue.remove(0); // remove order after processing
-            } else {
-                sleep(Duration::from_millis(100)).await; // no orders, wait a bit
-            }
+        while let Some(order) = self.queue.first() { // process all orders
+            println!("Processing order to floor {}", order.floor);
+            self.transitions(Event::NewOrder(order.floor)).await;
+            self.transitions(Event::ArrivedAtFloor).await;
+            self.queue.remove(0); // remove order after processing
+            println!("Order completed, remaining queue length: {}", self.queue.len());
         }
+        println!("går ut av run_queue");
     }
 
     pub async fn arrived_at_floor(&mut self) {

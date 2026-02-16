@@ -38,6 +38,7 @@ pub struct ElevatorFSM {
     pub prev_floor: u8,
     pub elev_id: String,
     pub state: ElevState,
+    pub last_received_msg_counter: i32,
 }
 
 // --- Shared types 
