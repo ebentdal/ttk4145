@@ -28,17 +28,21 @@ async fn main() {
         message,
     ).await;
 
- 
-    
-    let test_queue_internal = vec![
-        Order { floor: 1, order_type: ButtonType::CabCall },
-    ];
-
-    //let mut fsm_handle = tokio::spawn(async move {
-    //    elevator1.run_queue().await;
-    //});
 
     let mut network = Heartbeat::new().await;
+    send_to_other_computer(&mut network).await;
+    
+
+    loop {
+        if let Some(msg_recieved) = network.network_controller().await {
+            request_assigner.send_to_own_fsm(&mut elevator1, msg_recieved).await;
+            elevator1.run_queue().await;
+        }
+    }
+}
+
+
+async fn send_to_other_computer(&network: &mut Heartbeat) {
     network.msg.external_orders = test_queue_external;
     network.msg.counter += 1;
 
@@ -48,18 +52,11 @@ async fn main() {
         }
     };
     timeout(Duration::from_secs(6), phase1).await;
-
-
+    
     let test_queue_external2 = vec![
         Order { floor: 0, order_type: ButtonType::CabCall },
         Order { floor: 1, order_type: ButtonType::CabCall },
     ];
     network.msg.external_orders = test_queue_external2;
     network.msg.counter += 1;
-    loop {
-        if let Some(msg_recieved) = network.network_controller().await {
-            request_assigner.send_to_own_fsm(&mut elevator1, msg_recieved).await;
-            elevator1.run_queue().await;
-        }
-    }
 }
