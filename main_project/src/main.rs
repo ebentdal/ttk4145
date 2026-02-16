@@ -22,7 +22,7 @@ async fn main() {
         states: std::collections::HashMap::new(),
     };
 
-    let request_assigner = RequestAssigner::new(
+    let _request_assigner = RequestAssigner::new(
         "elevator1".to_string(),
         Roles::Master,
         message,
@@ -30,15 +30,10 @@ async fn main() {
 
 
     let mut network = Heartbeat::new().await;
-
+    send_to_other_computer(&mut network).await;
     
 
-    loop {
-        if let Some(msg_recieved) = network.network_controller().await {
-            request_assigner.send_to_own_fsm(&mut elevator1, msg_recieved).await;
-            elevator1.run_queue().await;
-        }
-    }
+
 }
 
 
@@ -57,11 +52,15 @@ async fn send_to_other_computer(network: &mut Heartbeat) {
         }
     };
     timeout(Duration::from_secs(6), phase1).await;
-    
     let test_queue_external2 = vec![
         Order { floor: 0, order_type: ButtonType::CabCall },
         Order { floor: 1, order_type: ButtonType::CabCall },
     ];
+
     network.msg.external_orders = test_queue_external2;
     network.msg.counter += 1;
+
+    loop {
+        network.network_controller().await;
+    }
 }
