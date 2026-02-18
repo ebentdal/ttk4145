@@ -54,7 +54,7 @@ impl RequestAssigner {
         //println!("Stdout: {}", printAssignments);
         return assignments;
     }
-    pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>) {
+    pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>, network: &mut Heartbeat) {
         use std::net::IpAddr;
         use std::str::FromStr;
         
@@ -67,6 +67,7 @@ impl RequestAssigner {
                 .find(|hb| matches!(hb.role, Roles::Master)) {
                 println!("WARNING: Another master detected: {}. Demoting to slave.", other_master.id);
                 self.role = Roles::Slave;
+                network.msg.role = Roles::Slave;
             }
             return;
         }
@@ -76,6 +77,7 @@ impl RequestAssigner {
             .find(|hb| matches!(hb.role, Roles::Master)) {
             println!("Master already exists: {}", master.id);
             self.role = Roles::Slave;
+            network.msg.role = Roles::Slave;
             return;
         }
         
@@ -92,9 +94,11 @@ impl RequestAssigner {
             if *min_id == self.id {
                 println!("I am elected as master: {}", self.id);
                 self.role = Roles::Master;
+                network.msg.role = Roles::Master;
             } else {
                 println!("Master elected: {} (I am {})", min_id, self.id);
                 self.role = Roles::Slave;
+                network.msg.role = Roles::Slave;
             }
         }
     }

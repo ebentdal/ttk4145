@@ -36,7 +36,7 @@ async fn main() {
     gossip_heartbeats = collect_gossip_for_duration(&mut network, gossip_heartbeats, 4).await;
     println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
 
-    request_assigner.elect_master(gossip_heartbeats.clone()).await;
+    request_assigner.elect_master(gossip_heartbeats.clone(), &mut network).await;
 
     // Second phase: collect more heartbeats for 6 seconds
     gossip_heartbeats = collect_gossip_for_duration(&mut network, gossip_heartbeats, 6).await;
