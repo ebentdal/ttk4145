@@ -56,9 +56,26 @@ async fn main() {
 
     println!("got assignments: {:#?}", assignments);
 
+    network.msg.external_orders = vec![ Order { floor: 1, order_type: ButtonType::CabCall } ];
+    network.msg.counter += 1;          // bump so receivers know it’s new
+    network.network_controller().await; // sends the packet
+
+    if let Some(hb) = network.network_controller().await {
+        // received A’s heartbeat
+        for order in hb.external_orders {
+            println!("got order from A: floor {}", order.floor);
+            // …push to FSM, etc…
+        }
+    }
+
     gossip_heartbeats = collect_gossip(&mut network, gossip_heartbeats, 6).await;
     println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
+
+
+    
+
 }
+
 
 
 
