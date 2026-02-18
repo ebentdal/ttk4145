@@ -67,6 +67,7 @@ impl RequestAssigner {
             .min_by_key(|hb| hb.id.as_str())
         {
             self.role=Roles::Master;
+            println!("I am MASTER");
         }
     }
 

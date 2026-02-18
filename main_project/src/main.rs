@@ -22,9 +22,9 @@ async fn main() {
         states: std::collections::HashMap::new(),
     };
 
-    let _request_assigner = RequestAssigner::new(
+    let mut request_assigner = RequestAssigner::new(
         "elevator1".to_string(),
-        Roles::Master,
+        Roles::Slave,
         message,
     ).await;
 
@@ -51,7 +51,11 @@ async fn main() {
     };
     timeout(Duration::from_secs(6), phase1).await;
 
+    
+
     println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
+
+    request_assigner.elect_master(gossip_heartbeats);
 
     //send_to_other_computer(&mut network).await;
     
