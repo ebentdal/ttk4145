@@ -23,7 +23,8 @@ pub struct Order {
     pub order_type: ButtonType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ButtonType {
     CabCall,
     HallUp,
@@ -42,12 +43,14 @@ pub struct ElevatorFSM {
 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Roles {
     Master,
     Slave,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Behaviour {
     Idle,
     Moving,
@@ -55,6 +58,7 @@ pub enum Behaviour {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Direction {
     Up,
     Down,
@@ -82,14 +86,15 @@ pub struct Heartbeat {
 }
 
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Message {
     pub hall_requests: Vec<[bool; 2]>,
     pub states: HashMap<String, ElevatorState>,
 }
 
-#[derive(Serialize)]
-
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ElevatorState {
     pub behaviour: Behaviour,
     pub floor: u8,

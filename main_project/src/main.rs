@@ -72,6 +72,15 @@ async fn main() {
         let is_master = matches!(request_assigner.role, Roles::Master);
 
         if let Some(hb) = network.network_controller().await {
+            let mut cab_requests = vec![false; crate::config::NUM_FLOORS as usize];
+            for o in hb.internal_orders.iter() {
+                if matches!(o.order_type, ButtonType::CabCall) {
+                    if (o.floor as usize) < cab_requests.len() {
+                        cab_requests[o.floor as usize] = true;
+                    }
+                }
+            }
+
             let new_state = ElevatorState {
                 behaviour: hb.status.clone(),
                 floor: hb.floor,
@@ -81,19 +90,14 @@ async fn main() {
                     2 => Direction::Down,
                     _ => Direction::Stop,
                 },
-                cab_requests: hb
-                    .internal_orders
-                    .iter()
-                    .map(|o| matches!(o.order_type, ButtonType::CabCall))
-                    .collect(),
+                cab_requests,
             };
             request_assigner.message.states.insert(hb.id.clone(), new_state);
 
             for order in hb.external_orders {
                 if let ButtonType::HallUp | ButtonType::HallDown = order.order_type {
-                    request_assigner.message.hall_requests[order.floor as usize][
-                        if order.order_type == ButtonType::HallUp { 0 } else { 1 }
-                    ] = true;
+                    let idx = if matches!(order.order_type, ButtonType::HallUp) { 0 } else { 1 };
+                    request_assigner.message.hall_requests[order.floor as usize][idx] = true;
                 } else {
                     elevator.queue.push(order);
                 }
@@ -101,6 +105,30 @@ async fn main() {
         }
 
         if is_master {
+            // Ensure we include our own state so the assigner has at least one elevator
+            let local_state = ElevatorState {
+                behaviour: network.msg.status.clone(),
+                floor: network.msg.floor,
+                direction: match network.msg.direction {
+                    0 => Direction::Stop,
+                    1 => Direction::Up,
+                    2 => Direction::Down,
+                    _ => Direction::Stop,
+                },
+                cab_requests: {
+                    let mut v = vec![false; crate::config::NUM_FLOORS as usize];
+                    for o in network.internal_orders().iter() {
+                        if matches!(o.order_type, ButtonType::CabCall) {
+                            if (o.floor as usize) < v.len() {
+                                v[o.floor as usize] = true;
+                            }
+                        }
+                    }
+                    v
+                },
+            };
+            request_assigner.message.states.insert(request_assigner.id.clone(), local_state);
+
             let assignments = request_assigner.cost_function().await;
             for (peer_id, orders) in &assignments {
                 if peer_id == &request_assigner.id {

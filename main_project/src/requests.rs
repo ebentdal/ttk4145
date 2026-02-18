@@ -21,11 +21,17 @@ impl RequestAssigner {
                 2 => Direction::Down,
                 _ => Direction::Stop,
             },
-            cab_requests: msg
-                .internal_orders()
-                .iter()
-                .map(|o| matches!(o.order_type, ButtonType::CabCall))
-                .collect(),
+            cab_requests: {
+                let mut v = vec![false; crate::config::NUM_FLOORS as usize];
+                for o in msg.internal_orders().iter() {
+                    if matches!(o.order_type, ButtonType::CabCall) {
+                        if (o.floor as usize) < v.len() {
+                            v[o.floor as usize] = true;
+                        }
+                    }
+                }
+                v
+            },
         };
 
         self.message.states.insert(msg.id().to_string(), new_state);
@@ -33,9 +39,9 @@ impl RequestAssigner {
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
         let json_str = serde_json::to_string_pretty(&self.message).unwrap();
-        //println!("Message: {}", json_str);
+        println!("Message: {}", json_str);
 
-        let child = Command::new("./hall_request_assigner")
+        let child = match Command::new("./hall_request_assigner")
             .arg("--input")
             .arg(&json_str)
             .arg("--includeCab")
@@ -43,12 +49,27 @@ impl RequestAssigner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .unwrap();
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("failed to spawn hall_request_assigner: {}", e);
+                return HashMap::new();
+            }
+        };
 
-        let output = child.wait_with_output().await.unwrap();
+        let output = match child.wait_with_output().await {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("failed to wait for hall_request_assigner: {}", e);
+                return HashMap::new();
+            }
+        };
 
         if !output.status.success() {
-            eprintln!("hall_request_assigner failed: {}", String::from_utf8_lossy(&output.stderr));
+            eprintln!(
+                "hall_request_assigner failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             return HashMap::new();
         }
 
@@ -60,7 +81,8 @@ impl RequestAssigner {
         let assignments: HashMap<String, Vec<Order>> = match serde_json::from_slice(&output.stdout) {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("failed to parse hall_request_assigner output: {}\nstdout: {}\nstderr: {}",
+                eprintln!(
+                    "failed to parse hall_request_assigner output: {}\nstdout: {}\nstderr: {}",
                     e,
                     String::from_utf8_lossy(&output.stdout),
                     String::from_utf8_lossy(&output.stderr),
@@ -69,7 +91,7 @@ impl RequestAssigner {
             }
         };
 
-        return assignments;
+        assignments
     }
     pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>, network: &mut Heartbeat) {
         use std::net::IpAddr;
