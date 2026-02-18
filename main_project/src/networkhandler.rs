@@ -37,16 +37,24 @@ impl Heartbeat {
     pub async fn start_channels() -> (broadcast::Sender<HeartbeatMSG>, broadcast::Receiver<HeartbeatMSG>, cbc::Sender<HeartbeatMSG>) {
         // Crossbeam channels for UDP layer
         let (crossbeam_tx, crossbeam_tx_rx) = cbc::unbounded::<HeartbeatMSG>();
-        tokio::task::spawn_blocking(move || {
-            if udpnet::bcast::tx(MSG_PORT, crossbeam_tx_rx).is_err() {
-                panic!("Broadcast TX failed");
+        
+        // Start TX in a dedicated OS thread (not tokio blocking pool)
+        std::thread::spawn(move || {
+            println!("[UDP] Starting broadcast TX on port {}", MSG_PORT);
+            match udpnet::bcast::tx(MSG_PORT, crossbeam_tx_rx) {
+                Ok(_) => println!("[UDP] TX completed"),
+                Err(e) => eprintln!("[UDP] TX failed: {:?}", e),
             }
         });
 
         let (crossbeam_rx_tx, crossbeam_rx) = cbc::unbounded::<HeartbeatMSG>();
-        tokio::task::spawn_blocking(move || {
-            if udpnet::bcast::rx(MSG_PORT, crossbeam_rx_tx).is_err() {
-                panic!("Broadcast RX failed");
+        
+        // Start RX in a dedicated OS thread (not tokio blocking pool)
+        std::thread::spawn(move || {
+            println!("[UDP] Starting broadcast RX on port {}", MSG_PORT);
+            match udpnet::bcast::rx(MSG_PORT, crossbeam_rx_tx) {
+                Ok(_) => println!("[UDP] RX completed"),
+                Err(e) => eprintln!("[UDP] RX failed: {:?}", e),
             }
         });
 
@@ -55,7 +63,7 @@ impl Heartbeat {
         
         // Background task to relay from crossbeam to tokio broadcast
         let bcast_tx_relay = bcast_tx.clone();
-        tokio::task::spawn_blocking(move || {
+        std::thread::spawn(move || {
             loop {
                 match crossbeam_rx.recv() {
                     Ok(msg) => {
