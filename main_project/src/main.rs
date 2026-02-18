@@ -14,11 +14,9 @@ async fn main() {
 
     let mut elevator1 = ElevatorFSM::new("localhost:15657").await;
     elevator1.transitions(Event::NewOrder(1)).await;
-    // elevator1.transitions(Event::NewOrder(1)).await;
-    // elevator1.transitions(Event::ArrivedAtFloor).await;
 
     let message = Message {
-        hall_requests: vec![[false, false]; 4], // 4 floors, no hall orders
+        hall_requests: vec![[false, false]; 4],
         states: std::collections::HashMap::new(),
     };
 
@@ -32,7 +30,23 @@ async fn main() {
 
     let mut gossip_heartbeats: Vec<HeartbeatMSG> = Vec::new();
 
-    let phase1 = async {
+    // First phase: collect heartbeats for 4 seconds
+    gossip_heartbeats = collect_gossip_for_duration(&mut network, gossip_heartbeats, 4).await;
+    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
+
+    request_assigner.elect_master(gossip_heartbeats.clone()).await;
+
+    // Second phase: collect more heartbeats for 6 seconds
+    gossip_heartbeats = collect_gossip_for_duration(&mut network, gossip_heartbeats, 6).await;
+    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
+}
+
+async fn collect_gossip_for_duration(
+    network: &mut Heartbeat,
+    mut gossip_heartbeats: Vec<HeartbeatMSG>,
+    duration_secs: u64,
+) -> Vec<HeartbeatMSG> {
+    let phase = async {
         loop {
             network.network_controller().await;
             let new_gossip = network.collect_gossip_heartbeats().await;
@@ -49,18 +63,8 @@ async fn main() {
             }
         }
     };
-    timeout(Duration::from_secs(6), phase1).await;
-
-    
-
-    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
-
-    request_assigner.elect_master(gossip_heartbeats).await;
-
-    //send_to_other_computer(&mut network).await;
-    
-
-
+    timeout(Duration::from_secs(duration_secs), phase).await;
+    gossip_heartbeats
 }
 
 
