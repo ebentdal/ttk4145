@@ -3,6 +3,7 @@ use driver_rust::elevio::elev::Elevator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// --- FSM types ---
 
 #[derive(Copy, Clone, Debug)]
 pub enum ElevState {
@@ -24,7 +25,6 @@ pub struct Order {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum ButtonType {
     CabCall,
     HallUp,
@@ -41,16 +41,15 @@ pub struct ElevatorFSM {
     pub last_received_msg_counter: i32,
 }
 
+// --- Shared types 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum Roles {
     Master,
     Slave,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum Behaviour {
     Idle,
     Moving,
@@ -58,13 +57,13 @@ pub enum Behaviour {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum Direction {
     Up,
     Down,
     Stop,
 }
 
+// --- Network types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeartbeatMSG {
@@ -85,16 +84,16 @@ pub struct Heartbeat {
     pub tx_udp: crossbeam_channel::Sender<HeartbeatMSG>,
 }
 
+// --- Request assigner types ---
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize)]
 pub struct Message {
     pub hall_requests: Vec<[bool; 2]>,
     pub states: HashMap<String, ElevatorState>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Serialize)]
+
 pub struct ElevatorState {
     pub behaviour: Behaviour,
     pub floor: u8,

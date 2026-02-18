@@ -21,17 +21,11 @@ impl RequestAssigner {
                 2 => Direction::Down,
                 _ => Direction::Stop,
             },
-            cab_requests: {
-                let mut v = vec![false; crate::config::NUM_FLOORS as usize];
-                for o in msg.internal_orders().iter() {
-                    if matches!(o.order_type, ButtonType::CabCall) {
-                        if (o.floor as usize) < v.len() {
-                            v[o.floor as usize] = true;
-                        }
-                    }
-                }
-                v
-            },
+            cab_requests: msg
+                .internal_orders()
+                .iter()
+                .map(|o| matches!(o.order_type, ButtonType::CabCall))
+                .collect(),
         };
 
         self.message.states.insert(msg.id().to_string(), new_state);
@@ -41,7 +35,7 @@ impl RequestAssigner {
         let json_str = serde_json::to_string_pretty(&self.message).unwrap();
         println!("Message: {}", json_str);
 
-        let child = match Command::new("./hall_request_assigner")
+        let child = Command::new("./hall_request_assigner")
             .arg("--input")
             .arg(&json_str)
             .arg("--includeCab")
@@ -49,56 +43,25 @@ impl RequestAssigner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("failed to spawn hall_request_assigner: {}", e);
-                return HashMap::new();
-            }
-        };
+            .unwrap();
 
-        let output = match child.wait_with_output().await {
-            Ok(o) => o,
-            Err(e) => {
-                eprintln!("failed to wait for hall_request_assigner: {}", e);
-                return HashMap::new();
-            }
-        };
-
-        if !output.status.success() {
-            eprintln!(
-                "hall_request_assigner failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            return HashMap::new();
-        }
-
-        if output.stdout.is_empty() {
-            eprintln!("hall_request_assigner produced no stdout");
-            return HashMap::new();
-        }
-
-        let assignments: HashMap<String, Vec<Order>> = match serde_json::from_slice(&output.stdout) {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!(
-                    "failed to parse hall_request_assigner output: {}\nstdout: {}\nstderr: {}",
-                    e,
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr),
-                );
-                return HashMap::new();
-            }
-        };
-
-        assignments
+        let output = child.wait_with_output().await.unwrap();
+        
+        let assignments: HashMap<String, Vec<Order>> = serde_json::from_slice(&output.stdout).unwrap();
+        //let printAssignments = to_string_pretty(&assignments);
+        // let formattedoutput = String::from_utf8_lossy(&output.stdout);
+        // let prettyoutput: String = serde_json::to_string_pretty(&formattedoutput).unwrap();
+        //println!("Stdout: {}", printAssignments);
+        return assignments;
     }
     pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>, network: &mut Heartbeat) {
         use std::net::IpAddr;
         use std::str::FromStr;
         
+        // Check if a master already exists (including self)
         if matches!(self.role, Roles::Master) {
             println!("I am already the master: {}", self.id);
+            // Verify that no other node claims to be master
             if let Some(other_master) = gossip_heartbeats
                 .iter()
                 .find(|hb| matches!(hb.role, Roles::Master)) {
@@ -120,11 +83,13 @@ impl RequestAssigner {
             return;
         }
         
+        // Build a list including own ID and all gossip IDs
         let mut all_ids: Vec<String> = vec![self.id.clone()];
         for hb in &gossip_heartbeats {
             all_ids.push(hb.id.clone());
         }
         
+        // Find the minimum ID by parsing as IP addresses for proper numeric comparison
         if let Some(min_id) = all_ids.iter().min_by_key(|id| {
             IpAddr::from_str(id).unwrap_or(IpAddr::from([0, 0, 0, 0]))
         }) {
@@ -151,6 +116,7 @@ impl RequestAssigner {
     }
 
     pub async fn send_to_own_fsm(&self, fsm: &mut ElevatorFSM, heartbeat: HeartbeatMSG) {
+        // Skip if this is a duplicate message (same counter as before)
         if heartbeat.counter == fsm.last_received_msg_counter {
             println!("Duplicate message with counter {}, skipping", heartbeat.counter);
             return;
@@ -169,3 +135,16 @@ impl RequestAssigner {
 
 }
 
+        // let id1 = ElevatorState {
+        //     behaviour: Behaviour::Moving,
+        //     floor: 2,
+        //     direction: Direction::Up,
+        //     cab_requests: vec![false, false, true, true],
+        // };
+
+        // let id2 = ElevatorState {
+        //     behaviour: Behaviour::Idle,
+        //     floor: 0,
+        //     direction: Direction::Stop,
+        //     cab_requests: vec![false, false, false, false],
+        // };

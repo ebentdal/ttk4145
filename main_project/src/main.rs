@@ -3,152 +3,101 @@ mod fsm;
 pub mod types;
 mod networkhandler;
 mod requests;
-mod testfunctions;
 
 use types::*;
-use std::collections::HashMap;
+
 use tokio::time::{timeout, Duration};
-use testfunctions::collect_gossip;
-use crate::testfunctions::send_order_to_other_computer;
 
 #[tokio::main]
 async fn main() {
-    println!("Initializing elevator and network...");
+    println!("Main started");
 
-    let mut elevator = ElevatorFSM::new("localhost:15657").await;
-    elevator.transitions(Event::NewOrder(1)).await; 
-
-    let mut network: Heartbeat = Heartbeat::new().await;
+    let mut elevator1 = ElevatorFSM::new("localhost:15657").await;
+    elevator1.transitions(Event::NewOrder(1)).await;
 
     let message = Message {
         hall_requests: vec![[false, false]; 4],
         states: std::collections::HashMap::new(),
     };
 
+
+
+    let mut network = Heartbeat::new().await;
+
     let mut request_assigner = RequestAssigner::new(
         network.id().to_string(),
         Roles::Slave,
         message,
-    ).await;    
-
+    ).await;
 
     let mut gossip_heartbeats: Vec<HeartbeatMSG> = Vec::new();
 
-    //send_order_to_other_computer(&mut network).await;
-
- 
-
-
-    gossip_heartbeats = collect_gossip(&mut network, gossip_heartbeats, 4).await;
+    // First phase: collect heartbeats for 4 seconds
+    gossip_heartbeats = collect_gossip_for_duration(&mut network, gossip_heartbeats, 4).await;
     println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
 
     request_assigner.elect_master(gossip_heartbeats.clone(), &mut network).await;
 
+    // Second phase: collect more heartbeats for 6 seconds
+    gossip_heartbeats = collect_gossip_for_duration(&mut network, gossip_heartbeats, 6).await;
+    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
+}
 
-
-
-
-
-    if !matches!(request_assigner.role, Roles::Master) {
-        network.msg.external_orders = vec![
-            Order { floor: 2, order_type: ButtonType::HallUp },
-            Order { floor: 3, order_type: ButtonType::HallDown },
-        ];
-        network.msg.counter += 1;
-        println!("Sent test external orders in heartbeat (counter={})", network.msg.counter);
-
-        for _ in 0..20 {
-            let _ = network.network_controller().await;
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    } else {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
-
-
-
-
-    loop {
-        let is_master = matches!(request_assigner.role, Roles::Master);
-
-        if let Some(hb) = network.network_controller().await {
-            let mut cab_requests = vec![false; crate::config::NUM_FLOORS as usize];
-            for o in hb.internal_orders.iter() {
-                if matches!(o.order_type, ButtonType::CabCall) {
-                    if (o.floor as usize) < cab_requests.len() {
-                        cab_requests[o.floor as usize] = true;
+async fn collect_gossip_for_duration(
+    network: &mut Heartbeat,
+    mut gossip_heartbeats: Vec<HeartbeatMSG>,
+    duration_secs: u64,
+) -> Vec<HeartbeatMSG> {
+    let phase = async {
+        loop {
+            network.network_controller().await;
+            let new_gossip = network.collect_gossip_heartbeats().await;
+            
+            // Merge new gossip with existing, updating only if counter is higher
+            for new_msg in new_gossip {
+                if let Some(pos) = gossip_heartbeats.iter().position(|h| h.id == new_msg.id) {
+                    if new_msg.counter > gossip_heartbeats[pos].counter {
+                        gossip_heartbeats[pos] = new_msg;
                     }
-                }
-            }
-
-            let new_state = ElevatorState {
-                behaviour: hb.status.clone(),
-                floor: hb.floor,
-                direction: match hb.direction {
-                    0 => Direction::Stop,
-                    1 => Direction::Up,
-                    2 => Direction::Down,
-                    _ => Direction::Stop,
-                },
-                cab_requests,
-            };
-            request_assigner.message.states.insert(hb.id.clone(), new_state);
-
-            for order in hb.external_orders {
-                if let ButtonType::HallUp | ButtonType::HallDown = order.order_type {
-                    let idx = if matches!(order.order_type, ButtonType::HallUp) { 0 } else { 1 };
-                    request_assigner.message.hall_requests[order.floor as usize][idx] = true;
                 } else {
-                    elevator.queue.push(order);
+                    gossip_heartbeats.push(new_msg);
                 }
             }
         }
-
-        if is_master {
-            // Ensure we include our own state so the assigner has at least one elevator
-            let local_state = ElevatorState {
-                behaviour: network.msg.status.clone(),
-                floor: network.msg.floor,
-                direction: match network.msg.direction {
-                    0 => Direction::Stop,
-                    1 => Direction::Up,
-                    2 => Direction::Down,
-                    _ => Direction::Stop,
-                },
-                cab_requests: {
-                    let mut v = vec![false; crate::config::NUM_FLOORS as usize];
-                    for o in network.internal_orders().iter() {
-                        if matches!(o.order_type, ButtonType::CabCall) {
-                            if (o.floor as usize) < v.len() {
-                                v[o.floor as usize] = true;
-                            }
-                        }
-                    }
-                    v
-                },
-            };
-            request_assigner.message.states.insert(request_assigner.id.clone(), local_state);
-
-            let assignments = request_assigner.cost_function().await;
-            for (peer_id, orders) in &assignments {
-                if peer_id == &request_assigner.id {
-                    for o in orders {
-                        elevator.queue.push(o.clone());
-                    }
-                } else if !orders.is_empty() {
-                    network.msg.external_orders = orders.clone();
-                    network.msg.counter += 1;
-                }
-            }
-        }
-
-        if !elevator.queue.is_empty() {
-            elevator.run_queue().await;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    };
+    timeout(Duration::from_secs(duration_secs), phase).await;
+    gossip_heartbeats
 }
 
 
+async fn send_order_to_other_computer(network: &mut Heartbeat) {
+    let test_queue_external= vec![
+        Order { floor: 2, order_type: ButtonType::CabCall },
+        Order { floor: 3, order_type: ButtonType::CabCall },
+    ];
+    
+    network.msg.external_orders = test_queue_external;
+    network.msg.counter += 1;
 
+    let phase1 = async {
+        loop {
+            network.network_controller().await;
+        }
+    };
+    timeout(Duration::from_secs(6), phase1).await;
+    
+    let test_queue_external2 = vec![
+        Order { floor: 0, order_type: ButtonType::CabCall },
+        Order { floor: 1, order_type: ButtonType::CabCall },
+    ];
 
+    network.msg.external_orders = test_queue_external2;
+    network.msg.counter += 1;
+
+    let phase2 = async {
+            loop {
+        network.network_controller().await;
+        }
+    };
+    timeout(Duration::from_secs(6), phase2).await;
+}
