@@ -56,17 +56,28 @@ impl RequestAssigner {
     }
     pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>) {
         if let Some(master) = gossip_heartbeats
-        .iter()
-        .find(|hb| matches!(hb.role, Roles::Master)) {
-            println!("Master has ID: {}", master.id);
-            return
+            .iter()
+            .find(|hb| matches!(hb.role, Roles::Master)) {
+            println!("Master already exists: {}", master.id);
+            self.role = Roles::Slave;
+            return;
         }
         
-        if let Some(_new_master) = gossip_heartbeats
-            .iter()
-            .min_by_key(|hb| hb.id.as_str())
-        {
-            self.role=Roles::Master;
+        // Build a list including own ID and all gossip IDs
+        let mut all_ids: Vec<String> = vec![self.id.clone()];
+        for hb in &gossip_heartbeats {
+            all_ids.push(hb.id.clone());
+        }
+        
+        // Find the minimum ID (should be elected as master)
+        if let Some(min_id) = all_ids.iter().min() {
+            if min_id == &self.id {
+                println!("I am elected as master: {}", self.id);
+                self.role = Roles::Master;
+            } else {
+                println!("Master elected: {} (I am {})", min_id, self.id);
+                self.role = Roles::Slave;
+            }
         }
     }
 
