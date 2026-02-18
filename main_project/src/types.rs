@@ -1,4 +1,4 @@
-use crossbeam_channel as cbc;
+use crossbeam_channel;
 use driver_rust::elevio::elev::Elevator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -79,8 +79,9 @@ pub struct HeartbeatMSG {
 
 pub struct Heartbeat {
     pub msg: HeartbeatMSG,
-    pub rx: cbc::Receiver<HeartbeatMSG>,
-    pub tx: cbc::Sender<HeartbeatMSG>,
+    pub rx: tokio::sync::broadcast::Receiver<HeartbeatMSG>,
+    pub tx_broadcast: tokio::sync::broadcast::Sender<HeartbeatMSG>,
+    pub tx_udp: crossbeam_channel::Sender<HeartbeatMSG>,
 }
 
 // --- Request assigner types ---

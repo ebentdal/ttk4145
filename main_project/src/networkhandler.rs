@@ -1,6 +1,7 @@
 use network_rust::udpnet;
 use std::net;
 use crossbeam_channel as cbc;
+use tokio::sync::broadcast;
 use crate::config::MSG_PORT;
 use crate::types::*;
 
@@ -13,7 +14,7 @@ impl Heartbeat {
             .ip();
         println!("local ip {}", local_ip);
 
-        let (tx, rx) = Self::start_channels().await;
+        let (tx_broadcast, rx, tx_udp) = Self::start_channels().await;
         let heartbeatmsg = HeartbeatMSG {
             id: local_ip.to_string(),
             external_orders: Vec::new(),
@@ -27,54 +28,79 @@ impl Heartbeat {
 
         Self {
             msg: heartbeatmsg,
-            tx,
             rx,
+            tx_broadcast,
+            tx_udp,
         }
     }
 
-    pub async fn start_channels() -> (cbc::Sender<HeartbeatMSG>, cbc::Receiver<HeartbeatMSG>) {
-        let (bcast_tx, bcast_tx_rx) = cbc::unbounded::<HeartbeatMSG>();
+    pub async fn start_channels() -> (broadcast::Sender<HeartbeatMSG>, broadcast::Receiver<HeartbeatMSG>, cbc::Sender<HeartbeatMSG>) {
+        // Crossbeam channels for UDP layer
+        let (crossbeam_tx, crossbeam_tx_rx) = cbc::unbounded::<HeartbeatMSG>();
         tokio::spawn(async move {
-            if udpnet::bcast::tx(MSG_PORT, bcast_tx_rx).is_err() {
+            if udpnet::bcast::tx(MSG_PORT, crossbeam_tx_rx).is_err() {
                 panic!("Broadcast TX failed");
             }
         });
 
-        let (bcast_rx_tx, bcast_rx) = cbc::unbounded::<HeartbeatMSG>();
+        let (crossbeam_rx_tx, crossbeam_rx) = cbc::unbounded::<HeartbeatMSG>();
         tokio::spawn(async move {
-            if udpnet::bcast::rx(MSG_PORT, bcast_rx_tx).is_err() {
+            if udpnet::bcast::rx(MSG_PORT, crossbeam_rx_tx).is_err() {
                 panic!("Broadcast RX failed");
+            }
+        });
+
+        // Tokio broadcast channel for application layer (supports multiple subscribers)
+        let (bcast_tx, bcast_rx) = broadcast::channel::<HeartbeatMSG>(128);
+        
+        // Background task to relay from crossbeam to tokio broadcast
+        let bcast_tx_relay = bcast_tx.clone();
+        tokio::spawn(async move {
+            loop {
+                match crossbeam_rx.recv() {
+                    Ok(msg) => {
+                        let _ = bcast_tx_relay.send(msg);
+                    }
+                    Err(_) => break,
+                }
             }
         });
 
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         println!("Network channels initialized");
 
-        (bcast_tx, bcast_rx)
+        (bcast_tx, bcast_rx, crossbeam_tx)
     }
 
     pub async fn network_controller(&mut self) -> Option<HeartbeatMSG> {
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-        self.tx.send(self.msg.clone()).unwrap();
+        self.tx_udp.send(self.msg.clone()).unwrap();
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-    match self.rx.recv_timeout(std::time::Duration::from_millis(100)) {
-        Ok(msg) if msg.id != self.msg.id => Some(msg),
-        _ => None,
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            self.rx.recv()
+        ).await {
+            Ok(Ok(msg)) if msg.id != self.msg.id => Some(msg),
+            _ => None,
+        }
     }
-}
 
     pub async fn collect_gossip_heartbeats(&self) -> Vec<HeartbeatMSG> {
         let mut heartbeats: std::collections::HashMap<String, HeartbeatMSG> = std::collections::HashMap::new();
+        let mut rx = self.tx_broadcast.subscribe();
         
         let timeout_duration = std::time::Duration::from_millis(500);
         let start = std::time::Instant::now();
         
         while start.elapsed() < timeout_duration {
-            match self.rx.recv_timeout(std::time::Duration::from_millis(50)) {
-                Ok(msg) => {
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(50),
+                rx.recv()
+            ).await {
+                Ok(Ok(msg)) => {
                     if msg.id == self.msg.id {
                         continue;
                     }
@@ -87,7 +113,7 @@ impl Heartbeat {
                         heartbeats.insert(msg.id.clone(), msg);
                     }
                 }
-                Err(_) => {
+                _ => {
                     continue;
                 }
             }
