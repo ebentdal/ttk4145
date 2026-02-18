@@ -37,14 +37,14 @@ impl Heartbeat {
     pub async fn start_channels() -> (broadcast::Sender<HeartbeatMSG>, broadcast::Receiver<HeartbeatMSG>, cbc::Sender<HeartbeatMSG>) {
         // Crossbeam channels for UDP layer
         let (crossbeam_tx, crossbeam_tx_rx) = cbc::unbounded::<HeartbeatMSG>();
-        tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
             if udpnet::bcast::tx(MSG_PORT, crossbeam_tx_rx).is_err() {
                 panic!("Broadcast TX failed");
             }
         });
 
         let (crossbeam_rx_tx, crossbeam_rx) = cbc::unbounded::<HeartbeatMSG>();
-        tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
             if udpnet::bcast::rx(MSG_PORT, crossbeam_rx_tx).is_err() {
                 panic!("Broadcast RX failed");
             }
