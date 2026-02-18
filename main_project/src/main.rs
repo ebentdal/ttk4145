@@ -35,7 +35,18 @@ async fn main() {
     let phase1 = async {
         loop {
             network.network_controller().await;
-            gossip_heartbeats = network.collect_gossip_heartbeats().await;
+            let new_gossip = network.collect_gossip_heartbeats().await;
+            
+            // Merge new gossip with existing, updating only if counter is higher
+            for new_msg in new_gossip {
+                if let Some(pos) = gossip_heartbeats.iter().position(|h| h.id == new_msg.id) {
+                    if new_msg.counter > gossip_heartbeats[pos].counter {
+                        gossip_heartbeats[pos] = new_msg;
+                    }
+                } else {
+                    gossip_heartbeats.push(new_msg);
+                }
+            }
         }
     };
     timeout(Duration::from_secs(6), phase1).await;
