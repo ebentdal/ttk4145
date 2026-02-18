@@ -3,7 +3,6 @@ use std::net;
 use crossbeam_channel as cbc;
 use crate::config::MSG_PORT;
 use crate::types::*;
-use rand::Rng;
 
 impl Heartbeat {
     pub async fn new() -> Self {
@@ -15,10 +14,8 @@ impl Heartbeat {
         println!("local ip {}", local_ip);
 
         let (tx, rx) = Self::start_channels().await;
-        let mut rng = rand::thread_rng();
-        let num = rng.gen_range(0..10000);
         let heartbeatmsg = HeartbeatMSG {
-            id: num.to_string(),
+            id: local_ip.to_string(),
             external_orders: Vec::new(),
             internal_orders: Vec::new(),
             floor: 0,
@@ -69,6 +66,35 @@ impl Heartbeat {
     }
 }
 
+    pub async fn collect_gossip_heartbeats(&self) -> Vec<HeartbeatMSG> {
+        let mut heartbeats: std::collections::HashMap<String, HeartbeatMSG> = std::collections::HashMap::new();
+        
+        let timeout_duration = std::time::Duration::from_millis(500);
+        let start = std::time::Instant::now();
+        
+        while start.elapsed() < timeout_duration {
+            match self.rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(msg) => {
+                    if msg.id == self.msg.id {
+                        continue;
+                    }
+                    
+                    if let Some(existing) = heartbeats.get(&msg.id) {
+                        if msg.counter > existing.counter {
+                            heartbeats.insert(msg.id.clone(), msg);
+                        }
+                    } else {
+                        heartbeats.insert(msg.id.clone(), msg);
+                    }
+                }
+                Err(_) => {
+                    continue;
+                }
+            }
+        }
+        
+        heartbeats.into_values().collect()
+    }
 
     pub async fn send_heartbeat_to_request(&self) {
         //TODO send heartbeat message to requests.rs
