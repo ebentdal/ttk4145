@@ -34,17 +34,9 @@ async fn main() {
 
     let mut gossip_heartbeats: Vec<HeartbeatMSG> = Vec::new();
 
-    send_order_to_other_computer(&mut network).await;
+    //send_order_to_other_computer(&mut network).await;
 
-    let mut fsm_handle = tokio::spawn(async move {
-        elevator.run_queue().await;
-    });
-
-    loop {
-        network.network_controller().await;
-    }
-
-
+ 
 
 
     gossip_heartbeats = collect_gossip(&mut network, gossip_heartbeats, 4).await;
