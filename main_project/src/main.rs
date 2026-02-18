@@ -18,12 +18,12 @@ async fn main() {
     let mut elevator = ElevatorFSM::new("localhost:15657").await;
     elevator.transitions(Event::NewOrder(1)).await; 
 
+    let mut network: Heartbeat = Heartbeat::new().await;
+
     let message = Message {
         hall_requests: vec![[false, false]; 4],
         states: std::collections::HashMap::new(),
     };
-
-    let mut network = Heartbeat::new().await;
 
     let mut request_assigner = RequestAssigner::new(
         network.id().to_string(),
@@ -44,19 +44,24 @@ async fn main() {
 
     request_assigner.elect_master(gossip_heartbeats.clone(), &mut network).await;
 
-    let assignments: HashMap<String, Vec<Order>> = request_assigner.cost_function().await;
 
-    println!("got assignments: {:#?}", assignments);
 
-    network.msg.external_orders = vec![ Order { floor: 1, order_type: ButtonType::CabCall } ];
-    network.msg.counter += 1;          // bump so receivers know it’s new
-    network.network_controller().await; // sends the packet
+    network.msg.external_orders = vec![
+        Order { floor: 1, order_type: ButtonType::CabCall }
+    ];
+    network.msg.counter += 1;           
+
+    for _ in 0..20 {
+        if let Some(remote_hb) = network.network_controller().await {
+            if !remote_hb.external_orders.is_empty() {
+                println!("received remote orders: {:?}", remote_hb.external_orders);
+            }
+        }
+    }
 
     if let Some(hb) = network.network_controller().await {
-        // received A’s heartbeat
         for order in hb.external_orders {
             println!("got order from A: floor {}", order.floor);
-            // …push to FSM, etc…
         }
     }
 
