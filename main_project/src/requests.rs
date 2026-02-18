@@ -55,6 +55,19 @@ impl RequestAssigner {
         return assignments;
     }
     pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>) {
+        // Check if a master already exists (including self)
+        if matches!(self.role, Roles::Master) {
+            println!("I am already the master: {}", self.id);
+            // Verify that no other node claims to be master
+            if let Some(other_master) = gossip_heartbeats
+                .iter()
+                .find(|hb| matches!(hb.role, Roles::Master)) {
+                println!("WARNING: Another master detected: {}. Demoting to slave.", other_master.id);
+                self.role = Roles::Slave;
+            }
+            return;
+        }
+        
         if let Some(master) = gossip_heartbeats
             .iter()
             .find(|hb| matches!(hb.role, Roles::Master)) {
