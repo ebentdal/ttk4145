@@ -54,6 +54,21 @@ impl RequestAssigner {
         //println!("Stdout: {}", printAssignments);
         return assignments;
     }
+    pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>) {
+        if let Some(master) = gossip_heartbeats
+        .iter()
+        .find(|hb| matches!(hb.role, Roles::Master)) {
+            println!("Master has ID: {}", master.id);
+            return
+        }
+        
+        if let Some(_new_master) = gossip_heartbeats
+            .iter()
+            .min_by_key(|hb| hb.id.as_str())
+        {
+            self.role=Roles::Master;
+        }
+    }
 
     pub async fn master(&self) {
         //TODO call the cost function, send gossip, and its own orders to its fsm
