@@ -6,32 +6,13 @@ mod requests;
 mod testfunctions;
 
 use types::*;
-
+use std::collections::HashMap;
 use tokio::time::{timeout, Duration};
-
 use testfunctions::collect_gossip;
+use crate::testfunctions::send_order_to_other_computer;
 
 #[tokio::main]
 async fn main() {
-
-    let (mut network, mut request_assigner) = init_elevator().await;
-    
-
-
-    let mut gossip_heartbeats: Vec<HeartbeatMSG> = Vec::new();
-
-    gossip_heartbeats = collect_gossip(&mut network, gossip_heartbeats, 4).await;
-    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
-
-    request_assigner.elect_master(gossip_heartbeats.clone(), &mut network).await;
-
-    gossip_heartbeats = collect_gossip(&mut network, gossip_heartbeats, 6).await;
-    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
-}
-
-
-
-pub async fn init_elevator() -> (Heartbeat, RequestAssigner) {
     println!("Initializing elevator and network...");
 
     let mut elevator = ElevatorFSM::new("localhost:15657").await;
@@ -48,7 +29,36 @@ pub async fn init_elevator() -> (Heartbeat, RequestAssigner) {
         network.id().to_string(),
         Roles::Slave,
         message,
-    ).await;
+    ).await;    
 
-    (network, request_assigner)
+
+    let mut gossip_heartbeats: Vec<HeartbeatMSG> = Vec::new();
+
+    send_order_to_other_computer(&mut network).await;
+
+    let mut fsm_handle = tokio::spawn(async move {
+        elevator.run_queue().await;
+    });
+
+    loop {
+        network.network_controller().await;
+    }
+
+
+
+
+    gossip_heartbeats = collect_gossip(&mut network, gossip_heartbeats, 4).await;
+    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
+
+    request_assigner.elect_master(gossip_heartbeats.clone(), &mut network).await;
+
+    let assignments: HashMap<String, Vec<Order>> = request_assigner.cost_function().await;
+
+    println!("got assignments: {:#?}", assignments);
+
+    gossip_heartbeats = collect_gossip(&mut network, gossip_heartbeats, 6).await;
+    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
 }
+
+
+

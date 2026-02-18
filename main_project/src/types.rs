@@ -3,7 +3,6 @@ use driver_rust::elevio::elev::Elevator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// --- FSM types ---
 
 #[derive(Copy, Clone, Debug)]
 pub enum ElevState {
@@ -41,7 +40,6 @@ pub struct ElevatorFSM {
     pub last_received_msg_counter: i32,
 }
 
-// --- Shared types 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Roles {
@@ -63,7 +61,6 @@ pub enum Direction {
     Stop,
 }
 
-// --- Network types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeartbeatMSG {
@@ -84,7 +81,6 @@ pub struct Heartbeat {
     pub tx_udp: crossbeam_channel::Sender<HeartbeatMSG>,
 }
 
-// --- Request assigner types ---
 
 #[derive(Serialize)]
 pub struct Message {
