@@ -68,6 +68,7 @@ impl RequestAssigner {
                 println!("WARNING: Another master detected: {}. Demoting to slave.", other_master.id);
                 self.role = Roles::Slave;
                 network.msg.role = Roles::Slave;
+                network.msg.counter += 1;
             }
             return;
         }
@@ -78,6 +79,7 @@ impl RequestAssigner {
             println!("Master already exists: {}", master.id);
             self.role = Roles::Slave;
             network.msg.role = Roles::Slave;
+            network.msg.counter += 1;
             return;
         }
         
@@ -95,10 +97,12 @@ impl RequestAssigner {
                 println!("I am elected as master: {}", self.id);
                 self.role = Roles::Master;
                 network.msg.role = Roles::Master;
+                network.msg.counter += 1;
             } else {
                 println!("Master elected: {} (I am {})", min_id, self.id);
                 self.role = Roles::Slave;
                 network.msg.role = Roles::Slave;
+                network.msg.counter += 1;
             }
         }
     }
