@@ -46,9 +46,29 @@ impl RequestAssigner {
             .unwrap();
 
         let output = child.wait_with_output().await.unwrap();
-        
-        let assignments: HashMap<String, Vec<Order>> = serde_json::from_slice(&output.stdout).unwrap();
-     
+
+        if !output.status.success() {
+            eprintln!("hall_request_assigner failed: {}", String::from_utf8_lossy(&output.stderr));
+            return HashMap::new();
+        }
+
+        if output.stdout.is_empty() {
+            eprintln!("hall_request_assigner produced no stdout");
+            return HashMap::new();
+        }
+
+        let assignments: HashMap<String, Vec<Order>> = match serde_json::from_slice(&output.stdout) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("failed to parse hall_request_assigner output: {}\nstdout: {}\nstderr: {}",
+                    e,
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr),
+                );
+                return HashMap::new();
+            }
+        };
+
         return assignments;
     }
     pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>, network: &mut Heartbeat) {
