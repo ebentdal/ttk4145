@@ -37,19 +37,10 @@ impl Heartbeat {
     pub async fn start_channels() -> (broadcast::Sender<HeartbeatMSG>, broadcast::Receiver<HeartbeatMSG>, cbc::Sender<HeartbeatMSG>) {
         // Crossbeam channels for UDP layer
         let (crossbeam_tx, crossbeam_tx_rx) = cbc::unbounded::<HeartbeatMSG>();
-        
-        // Start TX in a dedicated OS thread (not tokio blocking pool)
-        std::thread::spawn(move || {
-            println!("[UDP] Starting broadcast TX on port {}", MSG_PORT);
-            match udpnet::bcast::tx(MSG_PORT, crossbeam_tx_rx) {
-                Ok(_) => println!("[UDP] TX completed"),
-                Err(e) => eprintln!("[UDP] TX failed: {:?}", e),
-            }
-        });
-
         let (crossbeam_rx_tx, crossbeam_rx) = cbc::unbounded::<HeartbeatMSG>();
-        
-        // Start RX in a dedicated OS thread (not tokio blocking pool)
+
+        // Start RX FIRST, then TX (order matters for port binding)
+        let rx_crossbeam_rx = crossbeam_rx.clone();
         std::thread::spawn(move || {
             println!("[UDP] Starting broadcast RX on port {}", MSG_PORT);
             match udpnet::bcast::rx(MSG_PORT, crossbeam_rx_tx) {
@@ -58,14 +49,25 @@ impl Heartbeat {
             }
         });
 
+        // Small delay to ensure RX binds first
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        std::thread::spawn(move || {
+            println!("[UDP] Starting broadcast TX on port {}", MSG_PORT);
+            match udpnet::bcast::tx(MSG_PORT, crossbeam_tx_rx) {
+                Ok(_) => println!("[UDP] TX completed"),
+                Err(e) => eprintln!("[UDP] TX failed: {:?}", e),
+            }
+        });
+
         // Tokio broadcast channel for application layer (supports multiple subscribers)
         let (bcast_tx, bcast_rx) = broadcast::channel::<HeartbeatMSG>(512);
         
-        // Background task to relay from crossbeam to tokio broadcast
+        // Background task to relay from crossbeam to tokio broadcast (in its own thread)
         let bcast_tx_relay = bcast_tx.clone();
         std::thread::spawn(move || {
             loop {
-                match crossbeam_rx.recv() {
+                match rx_crossbeam_rx.recv() {
                     Ok(msg) => {
                         let _ = bcast_tx_relay.send(msg);
                     }
