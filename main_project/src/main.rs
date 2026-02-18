@@ -20,13 +20,15 @@ async fn main() {
         states: std::collections::HashMap::new(),
     };
 
+
+
+    let mut network = Heartbeat::new().await;
+
     let mut request_assigner = RequestAssigner::new(
-        "elevator1".to_string(),
+        network.id().to_string(),
         Roles::Slave,
         message,
     ).await;
-
-    let mut network = Heartbeat::new().await;
 
     let mut gossip_heartbeats: Vec<HeartbeatMSG> = Vec::new();
 

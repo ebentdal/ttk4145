@@ -55,6 +55,9 @@ impl RequestAssigner {
         return assignments;
     }
     pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>) {
+        use std::net::IpAddr;
+        use std::str::FromStr;
+        
         // Check if a master already exists (including self)
         if matches!(self.role, Roles::Master) {
             println!("I am already the master: {}", self.id);
@@ -82,9 +85,11 @@ impl RequestAssigner {
             all_ids.push(hb.id.clone());
         }
         
-        // Find the minimum ID (should be elected as master)
-        if let Some(min_id) = all_ids.iter().min() {
-            if min_id == &self.id {
+        // Find the minimum ID by parsing as IP addresses for proper numeric comparison
+        if let Some(min_id) = all_ids.iter().min_by_key(|id| {
+            IpAddr::from_str(id).unwrap_or(IpAddr::from([0, 0, 0, 0]))
+        }) {
+            if *min_id == self.id {
                 println!("I am elected as master: {}", self.id);
                 self.role = Roles::Master;
             } else {
