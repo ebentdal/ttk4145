@@ -55,7 +55,7 @@ async fn main() {
 
     println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
 
-    request_assigner.elect_master(gossip_heartbeats);
+    request_assigner.elect_master(gossip_heartbeats).await;
 
     //send_to_other_computer(&mut network).await;
     
