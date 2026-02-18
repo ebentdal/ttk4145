@@ -23,7 +23,7 @@ pub struct Order {
     pub order_type: ButtonType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ButtonType {
     CabCall,
     HallUp,

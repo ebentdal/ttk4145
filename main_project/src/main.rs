@@ -46,31 +46,57 @@ async fn main() {
 
 
 
-    network.msg.external_orders = vec![
-        Order { floor: 1, order_type: ButtonType::CabCall }
-    ];
-    network.msg.counter += 1;           
+    loop {
+        // recompute master status each iteration (role can change via gossip)
+        let is_master = matches!(request_assigner.role, Roles::Master);
 
-    for _ in 0..20 {
-        if let Some(remote_hb) = network.network_controller().await {
-            if !remote_hb.external_orders.is_empty() {
-                println!("received remote orders: {:?}", remote_hb.external_orders);
+        if let Some(hb) = network.network_controller().await {
+            let new_state = ElevatorState {
+                behaviour: hb.status.clone(),
+                floor: hb.floor,
+                direction: match hb.direction {
+                    0 => Direction::Stop,
+                    1 => Direction::Up,
+                    2 => Direction::Down,
+                    _ => Direction::Stop,
+                },
+                cab_requests: hb
+                    .internal_orders
+                    .iter()
+                    .map(|o| matches!(o.order_type, ButtonType::CabCall))
+                    .collect(),
+            };
+            request_assigner.message.states.insert(hb.id.clone(), new_state);
+
+            for order in hb.external_orders {
+                if let ButtonType::HallUp | ButtonType::HallDown = order.order_type {
+                    request_assigner.message.hall_requests[order.floor as usize][
+                        if order.order_type == ButtonType::HallUp { 0 } else { 1 }
+                    ] = true;
+                } else {
+                    elevator.queue.push(order);
+                }
             }
         }
-    }
 
-    if let Some(hb) = network.network_controller().await {
-        for order in hb.external_orders {
-            println!("got order from A: floor {}", order.floor);
+        // If we're the master, compute assignments and dispatch them
+        if is_master {
+            let assignments = request_assigner.cost_function().await;
+            for (peer_id, orders) in &assignments {
+                if peer_id == &request_assigner.id {
+                    for o in orders {
+                        elevator.queue.push(o.clone());
+                    }
+                } else if !orders.is_empty() {
+                    network.msg.external_orders = orders.clone();
+                    network.msg.counter += 1;
+                }
+            }
         }
+
+        elevator.run_queue().await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
-
-    gossip_heartbeats = collect_gossip(&mut network, gossip_heartbeats, 6).await;
-    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
-
-
-    
-
 }
 
 
