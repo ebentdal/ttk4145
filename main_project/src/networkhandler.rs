@@ -51,11 +51,11 @@ impl Heartbeat {
         });
 
         // Tokio broadcast channel for application layer (supports multiple subscribers)
-        let (bcast_tx, bcast_rx) = broadcast::channel::<HeartbeatMSG>(128);
+        let (bcast_tx, bcast_rx) = broadcast::channel::<HeartbeatMSG>(512);
         
         // Background task to relay from crossbeam to tokio broadcast
         let bcast_tx_relay = bcast_tx.clone();
-        tokio::spawn(async move {
+        tokio::task::spawn_blocking(move || {
             loop {
                 match crossbeam_rx.recv() {
                     Ok(msg) => {
@@ -75,6 +75,7 @@ impl Heartbeat {
     pub async fn network_controller(&mut self) -> Option<HeartbeatMSG> {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
+        println!("[NET] {} sending heartbeat (counter: {})", self.msg.id, self.msg.counter);
         self.tx_udp.send(self.msg.clone()).unwrap();
 
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -83,7 +84,10 @@ impl Heartbeat {
             std::time::Duration::from_millis(100),
             self.rx.recv()
         ).await {
-            Ok(Ok(msg)) if msg.id != self.msg.id => Some(msg),
+            Ok(Ok(msg)) if msg.id != self.msg.id => {
+                println!("[NET] {} received from {} (counter: {})", self.msg.id, msg.id, msg.counter);
+                Some(msg)
+            },
             _ => None,
         }
     }
@@ -105,6 +109,8 @@ impl Heartbeat {
                         continue;
                     }
                     
+                    println!("[GOSSIP] {} collected from {} (counter: {})", self.msg.id, msg.id, msg.counter);
+                    
                     if let Some(existing) = heartbeats.get(&msg.id) {
                         if msg.counter > existing.counter {
                             heartbeats.insert(msg.id.clone(), msg);
@@ -119,6 +125,7 @@ impl Heartbeat {
             }
         }
         
+        println!("[GOSSIP] {} collected {} total heartbeats", self.msg.id, heartbeats.len());
         heartbeats.into_values().collect()
     }
 
