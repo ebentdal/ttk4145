@@ -33,7 +33,7 @@ impl RequestAssigner {
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
         let json_str = serde_json::to_string_pretty(&self.message).unwrap();
-        println!("Message: {}", json_str);
+        //println!("Message: {}", json_str);
 
         let child = Command::new("./hall_request_assigner")
             .arg("--input")

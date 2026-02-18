@@ -46,8 +46,29 @@ async fn main() {
 
 
 
+
+
+
+    if !matches!(request_assigner.role, Roles::Master) {
+        network.msg.external_orders = vec![
+            Order { floor: 2, order_type: ButtonType::HallUp },
+            Order { floor: 3, order_type: ButtonType::HallDown },
+        ];
+        network.msg.counter += 1;
+        println!("Sent test external orders in heartbeat (counter={})", network.msg.counter);
+
+        for _ in 0..20 {
+            let _ = network.network_controller().await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    } else {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+
+
+
     loop {
-        // recompute master status each iteration (role can change via gossip)
         let is_master = matches!(request_assigner.role, Roles::Master);
 
         if let Some(hb) = network.network_controller().await {
@@ -79,7 +100,6 @@ async fn main() {
             }
         }
 
-        // If we're the master, compute assignments and dispatch them
         if is_master {
             let assignments = request_assigner.cost_function().await;
             for (peer_id, orders) in &assignments {
@@ -94,7 +114,9 @@ async fn main() {
             }
         }
 
-        elevator.run_queue().await;
+        if !elevator.queue.is_empty() {
+            elevator.run_queue().await;
+        }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
