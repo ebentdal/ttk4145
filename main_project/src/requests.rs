@@ -7,7 +7,7 @@ use crate::types::*;
 
 impl RequestAssigner {
     pub async fn new(id: String, role: Roles, message: Message) -> Self {
-        Self { message, id, role, last_published_assignments: HashMap::new(), last_seen: HashMap::new(), peer_ttl: tokio::time::Duration::from_secs(2),}
+        Self { message, id, role, last_published_assignments: HashMap::new(), last_seen: HashMap::new(), peer_ttl: tokio::time::Duration::from_secs(2),} //2 second timeout for master election
     }
 
     pub async fn process_heartbeat(&mut self, msg: Heartbeat) {
