@@ -39,8 +39,8 @@ async fn main() {
 
         if !injected {
             network.msg.external_orders = vec![
-                Order { floor: 2, order_type: ButtonType::HallUp },
-                Order { floor: 3, order_type: ButtonType::HallDown },
+                //Order { floor: 2, order_type: ButtonType::HallUp },
+                //Order { floor: 3, order_type: ButtonType::HallDown },
             ];
             network.msg.counter += 1;
             injected = true;

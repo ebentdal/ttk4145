@@ -2,6 +2,8 @@ use crossbeam_channel;
 use driver_rust::elevio::elev::Elevator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tokio::time::{Instant, Duration};
+
 
 // --- FSM types ---
 
@@ -43,7 +45,7 @@ pub struct ElevatorFSM {
 
 // --- Shared types 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Roles {
     Master,
     Slave,
@@ -114,4 +116,6 @@ pub struct RequestAssigner {
     pub role: Roles,
 
     pub last_published_assignments: HashMap<String, Vec<Order>>, //kanskje unødvendig
+    pub last_seen: HashMap<String, Instant>,
+    pub peer_ttl: Duration, //disse to for å hindre master flickering
 }

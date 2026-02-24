@@ -7,7 +7,7 @@ use crate::types::*;
 
 impl RequestAssigner {
     pub async fn new(id: String, role: Roles, message: Message) -> Self {
-        Self { message, id, role, last_published_assignments: HashMap::new(), }
+        Self { message, id, role, last_published_assignments: HashMap::new(), last_seen: HashMap::new(), peer_ttl: tokio::time::Duration::from_secs(2),}
     }
 
     pub async fn process_heartbeat(&mut self, msg: Heartbeat) {
@@ -143,27 +143,43 @@ impl RequestAssigner {
         }
     }
 
-    pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>, network: &mut Heartbeat) {
+    pub async fn elect_master(
+        &mut self,
+        gossip_heartbeats: Vec<HeartbeatMSG>,
+        network: &mut Heartbeat,
+    ) {
         use std::net::IpAddr;
         use std::str::FromStr;
+        use tokio::time::Instant;
 
-        let mut all_ids: Vec<String> = vec![self.id.clone()];
+        let now = Instant::now();
+
+        self.last_seen.insert(self.id.clone(), now);
         for hb in &gossip_heartbeats {
-            all_ids.push(hb.id.clone());
+            self.last_seen.insert(hb.id.clone(), now);
         }
 
-        let elected = all_ids
+        let ttl = self.peer_ttl;
+        self.last_seen.retain(|_, t| now.duration_since(*t) <= ttl);
+
+        let mut candidates: Vec<String> = self.last_seen.keys().cloned().collect();
+        if !candidates.iter().any(|id| id == &self.id) {
+            candidates.push(self.id.clone());
+        }
+
+        let elected = candidates
             .iter()
             .min_by_key(|id| IpAddr::from_str(id).unwrap_or(IpAddr::from([255, 255, 255, 255])))
             .unwrap()
             .clone();
 
-        let new_role = if elected == self.id { Roles::Master } else { Roles::Slave };
+        let new_role = if elected == self.id {
+            Roles::Master
+        } else {
+            Roles::Slave
+        };
 
-        let role_changed =
-            std::mem::discriminant(&self.role) != std::mem::discriminant(&new_role);
-
-        if role_changed {
+        if self.role != new_role {
             println!(
                 "Role change: {:?} -> {:?} (elected master: {})",
                 self.role, new_role, elected
