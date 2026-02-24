@@ -146,52 +146,33 @@ impl RequestAssigner {
     pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>, network: &mut Heartbeat) {
         use std::net::IpAddr;
         use std::str::FromStr;
-        
-        // Check if a master already exists (including self)
-        if matches!(self.role, Roles::Master) {
-            println!("I am already the master: {}", self.id);
-            // Verify that no other node claims to be master
-            if let Some(other_master) = gossip_heartbeats
-                .iter()
-                .find(|hb| matches!(hb.role, Roles::Master)) {
-                println!("WARNING: Another master detected: {}. Demoting to slave.", other_master.id);
-                self.role = Roles::Slave;
-                network.msg.role = Roles::Slave;
-                network.msg.counter += 1;
-            }
-            return;
-        }
-        
-        if let Some(master) = gossip_heartbeats
-            .iter()
-            .find(|hb| matches!(hb.role, Roles::Master)) {
-            println!("Master already exists: {}", master.id);
-            self.role = Roles::Slave;
-            network.msg.role = Roles::Slave;
-            network.msg.counter += 1;
-            return;
-        }
-        
-        // Build a list including own ID and all gossip IDs
+
         let mut all_ids: Vec<String> = vec![self.id.clone()];
         for hb in &gossip_heartbeats {
             all_ids.push(hb.id.clone());
         }
-        
-        if let Some(min_id) = all_ids.iter().min_by_key(|id| {
-            IpAddr::from_str(id).unwrap_or(IpAddr::from([0, 0, 0, 0]))
-        }) {
-            if *min_id == self.id {
-                println!("I am elected as master: {}", self.id);
-                self.role = Roles::Master;
-                network.msg.role = Roles::Master;
-                network.msg.counter += 1;
-            } else {
-                println!("Master elected: {} (I am {})", min_id, self.id);
-                self.role = Roles::Slave;
-                network.msg.role = Roles::Slave;
-                network.msg.counter += 1;
-            }
+
+        let elected = all_ids
+            .iter()
+            .min_by_key(|id| IpAddr::from_str(id).unwrap_or(IpAddr::from([255, 255, 255, 255])))
+            .unwrap()
+            .clone();
+
+        let new_role = if elected == self.id { Roles::Master } else { Roles::Slave };
+
+        let role_changed =
+            std::mem::discriminant(&self.role) != std::mem::discriminant(&new_role);
+
+        if role_changed {
+            println!(
+                "Role change: {:?} -> {:?} (elected master: {})",
+                self.role, new_role, elected
+            );
+            self.role = new_role.clone();
+            network.msg.role = new_role;
+            network.msg.counter += 1;
+        } else {
+            network.msg.role = new_role;
         }
     }
 

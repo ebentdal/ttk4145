@@ -24,6 +24,7 @@ impl Heartbeat {
             status: Behaviour::Idle,
             counter: 0,
             role: Roles::Slave,
+            assignments: HashMap::new(),
         };
 
         Self {
