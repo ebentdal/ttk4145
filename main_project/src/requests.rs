@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde_json::to_string_pretty;
-use crate::types::{ElevatorFSM, Event, Order};
+use crate::{config::NUM_FLOORS, types::{ElevatorFSM, Event, Order}};
 use tokio::process::Command;
 use std::process::Stdio;
 use crate::types::*;
@@ -32,28 +32,105 @@ impl RequestAssigner {
     }
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
-        let json_str = serde_json::to_string_pretty(&self.message).unwrap();
-        println!("Message: {}", json_str);
+    let json_str = serde_json::to_string_pretty(&self.message).unwrap();
+    println!("Message: {}", json_str);
 
-        let child = Command::new("./hall_request_assigner")
-            .arg("--input")
-            .arg(&json_str)
-            .arg("--includeCab")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+    let child = Command::new("./hall_request_assigner")
+        .arg("--input")
+        .arg(&json_str)
+        .arg("--includeCab") // behold som du har (da får vi 3 kolonner)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
 
-        let output = child.wait_with_output().await.unwrap();
-        
-        let assignments: HashMap<String, Vec<Order>> = serde_json::from_slice(&output.stdout).unwrap();
-        //let printAssignments = to_string_pretty(&assignments);
-        // let formattedoutput = String::from_utf8_lossy(&output.stdout);
-        // let prettyoutput: String = serde_json::to_string_pretty(&formattedoutput).unwrap();
-        //println!("Stdout: {}", printAssignments);
-        return assignments;
+    let output = child.wait_with_output().await.unwrap();
+
+    if !output.status.success() {
+        eprintln!(
+            "hall_request_assigner feilet. stderr:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return HashMap::new();
     }
+
+    let raw: HashMap<String, Vec<Vec<bool>>> = serde_json::from_slice(&output.stdout).unwrap();
+
+    let mut assignments: HashMap<String, Vec<Order>> = HashMap::new();
+
+    for (id, per_floor) in raw {
+        let mut orders: Vec<Order> = Vec::new();
+
+        for (floor, cols) in per_floor.iter().enumerate() {
+            if cols.get(0).copied().unwrap_or(false) {
+                orders.push(Order {
+                    floor: floor as u8,
+                    order_type: ButtonType::HallUp,
+                });
+            }
+            if cols.get(1).copied().unwrap_or(false) {
+                orders.push(Order {
+                    floor: floor as u8,
+                    order_type: ButtonType::HallDown,
+                });
+            }
+            if cols.get(2).copied().unwrap_or(false) {
+                orders.push(Order {
+                    floor: floor as u8,
+                    order_type: ButtonType::CabCall,
+                });
+            }
+        }
+        assignments.insert(id, orders);
+    }
+    assignments
+    }
+    pub async fn build_message_from_gossip(&mut self, gossip: &[HeartbeatMSG], num_floors: usize) {
+        // 1) reset
+        self.message.states.clear();
+        self.message.hall_requests = vec![[false, false]; num_floors];
+
+        for hb in gossip {
+            // 2) state -> ElevatorState (for D)
+            let mut cab = vec![false; num_floors];
+            for o in hb.internal_orders.iter() {
+                if matches!(o.order_type, ButtonType::CabCall) {
+                    let f = o.floor as usize;
+                    if f < num_floors {
+                        cab[f] = true;
+                    }
+                }
+            }
+
+            let st = ElevatorState {
+                behaviour: hb.status.clone(),
+                floor: hb.floor,
+                direction: match hb.direction {
+                    0 => Direction::Stop,
+                    1 => Direction::Up,
+                    2 => Direction::Down,
+                    _ => Direction::Stop,
+                },
+                cab_requests: cab,
+            };
+            self.message.states.insert(hb.id.clone(), st);
+
+            // 3) hallRequests = union av hall orders fra alle noder (demo)
+            for o in hb.external_orders.iter() {
+                let f = o.floor as usize;
+                if f >= num_floors {
+                    continue;
+                }
+                match o.order_type {
+                    ButtonType::HallUp => self.message.hall_requests[f][0] = true,
+                    ButtonType::HallDown => self.message.hall_requests[f][1] = true,
+                    _ => {}
+                }
+            }
+        }
+    }
+
     pub async fn elect_master(&mut self, gossip_heartbeats: Vec<HeartbeatMSG>, network: &mut Heartbeat) {
         use std::net::IpAddr;
         use std::str::FromStr;
@@ -89,7 +166,6 @@ impl RequestAssigner {
             all_ids.push(hb.id.clone());
         }
         
-        // Find the minimum ID by parsing as IP addresses for proper numeric comparison
         if let Some(min_id) = all_ids.iter().min_by_key(|id| {
             IpAddr::from_str(id).unwrap_or(IpAddr::from([0, 0, 0, 0]))
         }) {
@@ -116,7 +192,6 @@ impl RequestAssigner {
     }
 
     pub async fn send_to_own_fsm(&self, fsm: &mut ElevatorFSM, heartbeat: HeartbeatMSG) {
-        // Skip if this is a duplicate message (same counter as before)
         if heartbeat.counter == fsm.last_received_msg_counter {
             println!("Duplicate message with counter {}, skipping", heartbeat.counter);
             return;
@@ -130,21 +205,4 @@ impl RequestAssigner {
         }
     }
 
-
-
-
 }
-
-        // let id1 = ElevatorState {
-        //     behaviour: Behaviour::Moving,
-        //     floor: 2,
-        //     direction: Direction::Up,
-        //     cab_requests: vec![false, false, true, true],
-        // };
-
-        // let id2 = ElevatorState {
-        //     behaviour: Behaviour::Idle,
-        //     floor: 0,
-        //     direction: Direction::Stop,
-        //     cab_requests: vec![false, false, false, false],
-        // };
