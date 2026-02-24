@@ -23,10 +23,10 @@ async fn main() {
 
 
     let mut network = Heartbeat::new().await;
-    network.msg.external_orders = vec![
-        Order { floor: 2, order_type: ButtonType::HallUp },
-        Order { floor: 3, order_type: ButtonType::HallDown },
-    ];
+    // network.msg.external_orders = vec![
+    //     Order { floor: 2, order_type: ButtonType::HallUp },
+    //     Order { floor: 3, order_type: ButtonType::HallDown },
+    // ];
     network.msg.counter += 1;
 
     let mut request_assigner = RequestAssigner::new(

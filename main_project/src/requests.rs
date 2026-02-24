@@ -33,7 +33,7 @@ impl RequestAssigner {
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
     let json_str = serde_json::to_string_pretty(&self.message).unwrap();
-    println!("Message: {}", json_str);
+    //println!("Message: {}", json_str);
 
     let child = Command::new("./hall_request_assigner")
         .arg("--input")
@@ -109,10 +109,10 @@ impl RequestAssigner {
 
     fn insert_state_from_hb(&mut self, hb: &HeartbeatMSG, num_floors: usize) {
         let mut cab = vec![false; num_floors];
-        for o in hb.internal_orders.iter() {
-            if matches!(o.order_type, ButtonType::CabCall) {
-                let f = o.floor as usize;
-                if f < num_floors { cab[f] = true; }
+        for order in hb.internal_orders.iter() {
+            if matches!(order.order_type, ButtonType::CabCall) {
+                let floor = order.floor as usize;
+                if floor < num_floors { cab[floor] = true; }
             }
         }
 
@@ -132,12 +132,12 @@ impl RequestAssigner {
     }
 
     fn union_hall_from_hb(&mut self, hb: &HeartbeatMSG, num_floors: usize) {
-        for o in hb.external_orders.iter() {
-            let f = o.floor as usize;
-            if f >= num_floors { continue; }
-            match o.order_type {
-                ButtonType::HallUp => self.message.hall_requests[f][0] = true,
-                ButtonType::HallDown => self.message.hall_requests[f][1] = true,
+        for order in hb.external_orders.iter() {
+            let floor = order.floor as usize;
+            if floor >= num_floors { continue; }
+            match order.order_type {
+                ButtonType::HallUp => self.message.hall_requests[floor][0] = true,
+                ButtonType::HallDown => self.message.hall_requests[floor][1] = true,
                 _ => {}
             }
         }
@@ -176,7 +176,7 @@ impl RequestAssigner {
         }
     }
 
- pub async fn master(
+    pub async fn master(
         &mut self,
         gossip: &[HeartbeatMSG],
         network: &mut Heartbeat,
@@ -192,14 +192,14 @@ impl RequestAssigner {
             network.msg.assignments = assignments.clone();
             network.msg.counter += 1;
 
-            println!("\n--- ASSIGNMENTS (published) ---");
-            for (id, orders) in &assignments {
-                print!("{}: ", id);
-                for o in orders {
-                    print!("[f{} {:?}] ", o.floor, o.order_type);
-                }
-                println!();
-            }
+            //println!("\n--- ASSIGNMENTS (published) ---");
+            //for (id, orders) in &assignments {
+                //print!("{}: ", id);
+                //for order in orders {
+                    //print!("[f{} {:?}] ", order.floor, order.order_type);
+                //}
+                //println!();
+            //}
         }
 
         // MASTER: ta egne ordre direkte fra network.msg.assignments
@@ -234,14 +234,14 @@ impl RequestAssigner {
         fsm.last_received_msg_counter = assignments_counter;
 
         // Dedupe: legg kun inn orders som ikke allerede ligger i queue
-        for o in my_orders {
-            if !fsm.queue.contains(o) {
+        for order in my_orders {
+            if !fsm.queue.contains(order) {
                 if is_master {
-                    println!("(MASTER) enqueue order: f{} {:?}", o.floor, o.order_type);
+                    println!("(MASTER) enqueue order: f{} {:?}", order.floor, order.order_type);
                 } else {
-                    println!("(SLAVE)  enqueue order: f{} {:?}", o.floor, o.order_type);
+                    println!("(SLAVE)  enqueue order: f{} {:?}", order.floor, order.order_type);
                 }
-                fsm.queue.push(o.clone());
+                fsm.queue.push(order.clone());
             }
         }
     }

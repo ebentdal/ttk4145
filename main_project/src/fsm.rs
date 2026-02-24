@@ -33,7 +33,7 @@ impl ElevatorFSM {
                     return (elevator, floor, obstruction);
                 }
                 None => {
-                    println!("Elevator is between floors");
+                    //println!("Elevator is between floors");
                 }
             }
         }
@@ -58,12 +58,12 @@ impl ElevatorFSM {
     }
 
     pub async fn go_to_floor(&mut self, target_floor: u8) {
-        println!("FSM going to floor: {}", target_floor);
+        //println!("FSM going to floor: {}", target_floor);
 
         loop {
             match Elevator::floor_sensor(&self.fsm) {
                 Some(floor) => {
-                    println!("Elevator is at floor: {}", floor);
+                    //println!("Elevator is at floor: {}", floor);
 
                     if floor < target_floor {
                         Elevator::motor_direction(&self.fsm, DIRN_UP);
@@ -76,7 +76,7 @@ impl ElevatorFSM {
                     }
                 }
                 None => {
-                    println!("Elevator is between floors");
+                    //println!("Elevator is between floors");
                 }
             }
             sleep(Duration::from_millis(100)).await;
