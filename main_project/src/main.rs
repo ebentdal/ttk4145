@@ -4,6 +4,7 @@ pub mod types;
 mod networkhandler;
 mod requests;
 
+use std::collections::HashMap;
 use types::*;
 use tokio::time::{timeout, Duration};
 use crate::config::NUM_FLOORS;
@@ -22,8 +23,8 @@ async fn main() {
 
     let mut network = Heartbeat::new().await;
     network.msg.external_orders = vec![
-        Order { floor: 1, order_type: ButtonType::HallUp },
-        Order { floor: 2, order_type: ButtonType::HallDown },
+        Order { floor: 2, order_type: ButtonType::HallUp },
+        Order { floor: 0, order_type: ButtonType::HallDown },
     ];
     network.msg.counter += 1;
 

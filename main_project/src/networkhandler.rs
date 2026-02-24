@@ -4,6 +4,8 @@ use crossbeam_channel as cbc;
 use tokio::sync::broadcast;
 use crate::config::MSG_PORT;
 use crate::types::*;
+use std::collections::HashMap;
+
 
 impl Heartbeat {
     pub async fn new() -> Self {
