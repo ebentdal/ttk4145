@@ -18,13 +18,13 @@ pub enum Event {
     ArrivedAtFloor,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Order {
     pub floor: u8,
     pub order_type: ButtonType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ButtonType {
     CabCall,
     HallUp,
@@ -80,7 +80,7 @@ pub struct HeartbeatMSG {
     pub counter: i32,
     pub role: Roles,
     
-    pub assignments: std::collections::HashMap<String, Vec<Order>>,
+    pub assignments: std::collections::HashMap<String, Vec<Order>>, //ny, trengs den?
 }
 
 pub struct Heartbeat {
@@ -112,4 +112,6 @@ pub struct RequestAssigner {
     pub message: Message,
     pub id: String,
     pub role: Roles,
+
+    pub last_published_assignments: HashMap<String, Vec<Order>>, //kanskje unødvendig
 }

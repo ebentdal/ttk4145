@@ -7,7 +7,7 @@ use crate::types::*;
 
 impl RequestAssigner {
     pub async fn new(id: String, role: Roles, message: Message) -> Self {
-        Self { message, id, role }
+        Self { message, id, role, last_published_assignments: HashMap::new(), }
     }
 
     pub async fn process_heartbeat(&mut self, msg: Heartbeat) {
@@ -176,12 +176,74 @@ impl RequestAssigner {
         }
     }
 
-    pub async fn master(&self) {
-        //TODO call the cost function, send gossip, and its own orders to its fsm
+ pub async fn master(
+        &mut self,
+        gossip: &[HeartbeatMSG],
+        network: &mut Heartbeat,
+        fsm: &mut ElevatorFSM,
+    ) {
+        self.build_message_from_gossip(gossip, &network.msg);
+
+        let assignments = self.cost_function().await;
+
+        // Publiser bare hvis assignments faktisk endrer seg
+        if assignments != self.last_published_assignments {
+            self.last_published_assignments = assignments.clone();
+            network.msg.assignments = assignments.clone();
+            network.msg.counter += 1;
+
+            println!("\n--- ASSIGNMENTS (published) ---");
+            for (id, orders) in &assignments {
+                print!("{}: ", id);
+                for o in orders {
+                    print!("[f{} {:?}] ", o.floor, o.order_type);
+                }
+                println!();
+            }
+        }
+
+        // MASTER: ta egne ordre direkte fra network.msg.assignments
+        self.apply_my_assignments_from_map(&network.msg.assignments, network.msg.counter, network, fsm, true);
     }
 
-    pub async fn slave(&self) {
-        //TODO recieve orders and send to fsm, check gossip 
+    /// SLAVE: finn master i gossip og bruk assignments derfra
+    pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: &mut ElevatorFSM) {
+        if let Some(master_hb) = gossip.iter().find(|hb| matches!(hb.role, Roles::Master)) {
+            self.apply_my_assignments_from_map(&master_hb.assignments, master_hb.counter, network, fsm, false);
+        }
+    }
+
+    /// Felles: plukk ut mine orders fra et assignment-map og legg dem i køen
+    fn apply_my_assignments_from_map(
+        &self,
+        assignments_map: &HashMap<String, Vec<Order>>,
+        assignments_counter: i32,
+        network: &Heartbeat,
+        fsm: &mut ElevatorFSM,
+        is_master: bool,
+    ) {
+        let my_id = network.id().to_string();
+
+        let Some(my_orders) = assignments_map.get(&my_id) else { return; };
+
+        // Hvis vi allerede har behandlet denne batchen, gjør ingenting
+        if assignments_counter == fsm.last_received_msg_counter {
+            return;
+        }
+
+        fsm.last_received_msg_counter = assignments_counter;
+
+        // Dedupe: legg kun inn orders som ikke allerede ligger i queue
+        for o in my_orders {
+            if !fsm.queue.contains(o) {
+                if is_master {
+                    println!("(MASTER) enqueue order: f{} {:?}", o.floor, o.order_type);
+                } else {
+                    println!("(SLAVE)  enqueue order: f{} {:?}", o.floor, o.order_type);
+                }
+                fsm.queue.push(o.clone());
+            }
+        }
     }
 
     pub async fn send_to_own_fsm(&self, fsm: &mut ElevatorFSM, heartbeat: HeartbeatMSG) {
