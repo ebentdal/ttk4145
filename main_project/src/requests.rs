@@ -86,47 +86,59 @@ impl RequestAssigner {
     }
     assignments
     }
-    pub async fn build_message_from_gossip(&mut self, gossip: &[HeartbeatMSG], num_floors: usize) {
-        // 1) reset
+    pub fn build_message_from_gossip(
+        &mut self,
+        gossip: &[HeartbeatMSG],
+        own_hb: &HeartbeatMSG,
+    ) {
+        let num_floors = crate::config::NUM_FLOORS as usize;
+
         self.message.states.clear();
         self.message.hall_requests = vec![[false, false]; num_floors];
 
+        // 1) legg inn master sin egen state først (ALLTID)
+        self.insert_state_from_hb(own_hb, num_floors);
+        self.union_hall_from_hb(own_hb, num_floors);
+
+        // 2) legg inn alle andre fra gossip
         for hb in gossip {
-            // 2) state -> ElevatorState (for D)
-            let mut cab = vec![false; num_floors];
-            for o in hb.internal_orders.iter() {
-                if matches!(o.order_type, ButtonType::CabCall) {
-                    let f = o.floor as usize;
-                    if f < num_floors {
-                        cab[f] = true;
-                    }
-                }
-            }
+            self.insert_state_from_hb(hb, num_floors);
+            self.union_hall_from_hb(hb, num_floors);
+        }
+    }
 
-            let st = ElevatorState {
-                behaviour: hb.status.clone(),
-                floor: hb.floor,
-                direction: match hb.direction {
-                    0 => Direction::Stop,
-                    1 => Direction::Up,
-                    2 => Direction::Down,
-                    _ => Direction::Stop,
-                },
-                cab_requests: cab,
-            };
-            self.message.states.insert(hb.id.clone(), st);
-
-            // 3) hallRequests = union av hall orders fra alle noder (demo)
-            for o in hb.external_orders.iter() {
+    fn insert_state_from_hb(&mut self, hb: &HeartbeatMSG, num_floors: usize) {
+        let mut cab = vec![false; num_floors];
+        for o in hb.internal_orders.iter() {
+            if matches!(o.order_type, ButtonType::CabCall) {
                 let f = o.floor as usize;
-                if f >= num_floors {
-                    continue;
-                }
-                match o.order_type {
-                    ButtonType::HallUp => self.message.hall_requests[f][0] = true,
-                    ButtonType::HallDown => self.message.hall_requests[f][1] = true,
-                    _ => {}
-                }
+                if f < num_floors { cab[f] = true; }
+            }
+        }
+
+        let st = ElevatorState {
+            behaviour: hb.status.clone(),
+            floor: hb.floor,
+            direction: match hb.direction {
+                0 => Direction::Stop,
+                1 => Direction::Up,
+                2 => Direction::Down,
+                _ => Direction::Stop,
+            },
+            cab_requests: cab,
+        };
+
+        self.message.states.insert(hb.id.clone(), st);
+    }
+
+    fn union_hall_from_hb(&mut self, hb: &HeartbeatMSG, num_floors: usize) {
+        for o in hb.external_orders.iter() {
+            let f = o.floor as usize;
+            if f >= num_floors { continue; }
+            match o.order_type {
+                ButtonType::HallUp => self.message.hall_requests[f][0] = true,
+                ButtonType::HallDown => self.message.hall_requests[f][1] = true,
+                _ => {}
             }
         }
     }

@@ -25,6 +25,11 @@ async fn main() {
 
 
     let mut network = Heartbeat::new().await;
+    network.msg.external_orders = vec![
+    Order { floor: 1, order_type: ButtonType::HallUp },
+    Order { floor: 2, order_type: ButtonType::HallDown },
+    ];
+    network.msg.counter += 1;
 
     let mut request_assigner = RequestAssigner::new(
         network.id().to_string(),
@@ -50,11 +55,10 @@ async fn main() {
 
     // snapshot av gossip (kan ta f.eks. 200–500ms hvis du vil, men du har collect_gossip_heartbeats)
     let gossip = network.collect_gossip_heartbeats().await;
-
+    request_assigner.elect_master(gossip.clone(), &mut network).await;
     // (valgfritt) kjør election først, men la oss anta at denne noden er master i demo
     if matches!(request_assigner.role, Roles::Master) {
-        request_assigner.build_message_from_gossip(&gossip, NUM_FLOORS as usize).await;
-
+        request_assigner.build_message_from_gossip(&gossip, &network.msg);
         let assignments = request_assigner.cost_function().await;
 
         println!("\n--- ASSIGNMENTS ---");
@@ -70,6 +74,22 @@ async fn main() {
     tokio::time::sleep(Duration::from_millis(300)).await;
 }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 async fn collect_gossip_for_duration(
     network: &mut Heartbeat,
@@ -93,7 +113,7 @@ async fn collect_gossip_for_duration(
             }
         }
     };
-    timeout(Duration::from_secs(duration_secs), phase).await;
+    timeout(Duration::from_secs(5), phase).await;
     gossip_heartbeats
 }
 
@@ -115,8 +135,8 @@ async fn send_order_to_other_computer(network: &mut Heartbeat) {
     timeout(Duration::from_secs(6), phase1).await;
     
     let test_queue_external2 = vec![
-        Order { floor: 0, order_type: ButtonType::CabCall },
-        Order { floor: 1, order_type: ButtonType::CabCall },
+        Order { floor: 2, order_type: ButtonType::HallUp },
+        Order { floor: 3, order_type: ButtonType::HallDown },
     ];
 
     network.msg.external_orders = test_queue_external2;
