@@ -23,11 +23,6 @@ async fn main() {
 
 
     let mut network = Heartbeat::new().await;
-    // network.msg.external_orders = vec![
-    //     Order { floor: 2, order_type: ButtonType::HallUp },
-    //     Order { floor: 3, order_type: ButtonType::HallDown },
-    // ];
-    network.msg.counter += 1;
 
     let mut request_assigner = RequestAssigner::new(
         network.id().to_string(),
@@ -35,11 +30,21 @@ async fn main() {
         message,
     ).await;
 
+    let mut injected = false; //kun for ordre én gang
 
     loop {
         network.network_controller().await;
 
         let gossip = network.collect_gossip_heartbeats().await;
+
+        if !injected {
+            network.msg.external_orders = vec![
+                Order { floor: 2, order_type: ButtonType::HallUp },
+                Order { floor: 3, order_type: ButtonType::HallDown },
+            ];
+            network.msg.counter += 1;
+            injected = true;
+        }
 
         request_assigner
             .elect_master(gossip.clone(), &mut network)
