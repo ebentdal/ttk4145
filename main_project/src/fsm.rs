@@ -86,8 +86,8 @@ impl ElevatorFSM {
         return Some(button_press);
     }   
 
+
     pub async fn go_to_floor(&self, target_floor: u8) {
-        // acquire hardware lock for the duration of movement
         let mut inner = self.inner.lock().await;
 
         loop {
@@ -113,6 +113,7 @@ impl ElevatorFSM {
         }
     }
 
+
      pub async fn run_queue(&self) {
         loop {
             // take next order out of queue without holding hardware lock
@@ -135,6 +136,7 @@ impl ElevatorFSM {
             }
         }
     }
+
 
     pub async fn arrived_at_floor(&self) {
         let mut inner = self.inner.lock().await;

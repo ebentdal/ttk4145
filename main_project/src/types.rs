@@ -87,8 +87,7 @@ pub struct HeartbeatMSG {
     pub status: Behaviour,
     pub counter: i32,
     pub role: Roles,
-    
-    pub assignments: std::collections::HashMap<String, Vec<Order>>, //ny, trengs den?
+    pub assignments: std::collections::HashMap<String, Vec<Order>>, 
 }
 
 pub struct Heartbeat {

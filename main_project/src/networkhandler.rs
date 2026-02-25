@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 
 impl Heartbeat {
+
     pub async fn new() -> Self {
         let local_ip = net::TcpStream::connect("8.8.8.8:53")
             .unwrap()
@@ -37,12 +38,11 @@ impl Heartbeat {
         }
     }
 
+
     pub async fn start_channels() -> (broadcast::Sender<HeartbeatMSG>, broadcast::Receiver<HeartbeatMSG>, cbc::Sender<HeartbeatMSG>) {
-        // Crossbeam channels for UDP layer
         let (crossbeam_tx, crossbeam_tx_rx) = cbc::unbounded::<HeartbeatMSG>();
         let (crossbeam_rx_tx, crossbeam_rx) = cbc::unbounded::<HeartbeatMSG>();
 
-        // Start RX FIRST, then TX (order matters for port binding)
         let rx_crossbeam_rx = crossbeam_rx.clone();
         std::thread::spawn(move || {
             println!("[UDP] Starting broadcast RX on port {}", MSG_PORT);
@@ -52,7 +52,6 @@ impl Heartbeat {
             }
         });
 
-        // Small delay to ensure RX binds first
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         std::thread::spawn(move || {
@@ -63,10 +62,8 @@ impl Heartbeat {
             }
         });
 
-        // Tokio broadcast channel for application layer (supports multiple subscribers)
         let (bcast_tx, bcast_rx) = broadcast::channel::<HeartbeatMSG>(512);
         
-        // Background task to relay from crossbeam to tokio broadcast (in its own thread)
         let bcast_tx_relay = bcast_tx.clone();
         std::thread::spawn(move || {
             loop {
@@ -85,6 +82,7 @@ impl Heartbeat {
         (bcast_tx, bcast_rx, crossbeam_tx)
     }
 
+
     pub async fn network_controller(&mut self) -> Option<HeartbeatMSG> {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
@@ -102,6 +100,7 @@ impl Heartbeat {
             _ => None,
         }
     }
+
 
     pub async fn collect_gossip_heartbeats(&self) -> Vec<HeartbeatMSG> {
         let mut heartbeats: std::collections::HashMap<String, HeartbeatMSG> = std::collections::HashMap::new();
@@ -136,10 +135,6 @@ impl Heartbeat {
         }
         
         heartbeats.into_values().collect()
-    }
-
-    pub async fn send_heartbeat_to_request(&self) {
-        //TODO send heartbeat message to requests.rs
     }
 
     pub fn floor(&self) -> u8 {

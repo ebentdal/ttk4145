@@ -11,29 +11,14 @@ use tokio::time::Instant;
 use std::sync::Arc;
 
 impl RequestAssigner {
+
     pub async fn new(id: String, role: Roles, message: Message) -> Self {
-        Self { message, id, role, last_published_assignments: HashMap::new(), last_seen: HashMap::new(), peer_ttl: tokio::time::Duration::from_secs(2),} //2 second timeout for master election
-    }
-
-    pub async fn process_heartbeat(&mut self, msg: Heartbeat) {
-        let id = msg.id();
-        let new_state = ElevatorState {
-            behaviour: msg.status().clone(),
-            floor: msg.floor(),
-            direction: match msg.direction() {
-                0 => Direction::Stop,
-                1 => Direction::Up,
-                2 => Direction::Down,
-                _ => Direction::Stop,
-            },
-            cabRequests: msg
-                .internal_orders()
-                .iter()
-                .map(|o| matches!(o.order_type, ButtonType::CabCall))
-                .collect(),
-        };
-
-        self.message.states.insert(msg.id().to_string(), new_state);
+        Self { message, 
+            id, 
+            role, 
+            last_published_assignments: HashMap::new(), 
+            last_seen: HashMap::new(), 
+            peer_ttl: tokio::time::Duration::from_secs(2),} //2 second timeout for master election
     }
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
@@ -93,28 +78,29 @@ impl RequestAssigner {
     assignments
     }
 
+
     pub fn build_message_from_gossip(
         &mut self,
         gossip: &[HeartbeatMSG],
-        own_hb: &HeartbeatMSG,
+        own_heartbeat: &HeartbeatMSG,
     ) {
         let num_floors = crate::config::NUM_FLOORS as usize;
 
         self.message.states.clear();
         self.message.hallRequests = vec![[false, false]; num_floors];
 
-        self.insert_state_from_hb(own_hb, num_floors);
-        self.union_hall_from_hb(own_hb, num_floors);
+        self.insert_state_from_heartbeat(own_heartbeat, num_floors);
+        self.merge_external_orders(own_heartbeat, num_floors);
 
-        for hb in gossip {
-            self.insert_state_from_hb(hb, num_floors);
-            self.union_hall_from_hb(hb, num_floors);
+        for heartbeat in gossip {
+            self.insert_state_from_heartbeat(heartbeat, num_floors);
+            self.merge_external_orders(heartbeat, num_floors);
         }
     }
 
-    fn insert_state_from_hb(&mut self, hb: &HeartbeatMSG, num_floors: usize) {
+    fn insert_state_from_heartbeat(&mut self, heartbeat: &HeartbeatMSG, num_floors: usize) {
         let mut cab = vec![false; num_floors];
-        for order in hb.internal_orders.iter() {
+        for order in heartbeat.internal_orders.iter() {
             if matches!(order.order_type, ButtonType::CabCall) {
                 let floor = order.floor as usize;
                 if floor < num_floors { cab[floor] = true; }
@@ -122,9 +108,9 @@ impl RequestAssigner {
         }
 
         let st = ElevatorState {
-            behaviour: hb.status.clone(),
-            floor: hb.floor,
-            direction: match hb.direction {
+            behaviour: heartbeat.status.clone(),
+            floor: heartbeat.floor,
+            direction: match heartbeat.direction {
                 0 => Direction::Stop,
                 1 => Direction::Up,
                 2 => Direction::Down,
@@ -133,11 +119,11 @@ impl RequestAssigner {
             cabRequests: cab,
         };
 
-        self.message.states.insert(hb.id.clone(), st);
+        self.message.states.insert(heartbeat.id.clone(), st);
     }
 
-    fn union_hall_from_hb(&mut self, hb: &HeartbeatMSG, num_floors: usize) {
-        for order in hb.external_orders.iter() {
+    fn merge_external_orders(&mut self, heartbeat: &HeartbeatMSG, num_floors: usize) {
+        for order in heartbeat.external_orders.iter() {
             let floor = order.floor as usize;
             if floor >= num_floors { continue; }
             match order.order_type {
@@ -148,17 +134,44 @@ impl RequestAssigner {
         }
     }
 
+    async fn enqueue_orders(
+        &self,
+        fsm: &Arc<ElevatorFSM>,
+        orders: &[Order],
+        counter: i32,
+        allow_duplicates: bool,
+        prefix: Option<&str>,
+    ) {
+        {
+            let mut inner = fsm.inner.lock().await;
+            if counter == inner.last_received_msg_counter {
+                return;
+            }
+            inner.last_received_msg_counter = counter;
+        }
+
+        let mut q = fsm.queue.lock().await;
+        for order in orders {
+            if allow_duplicates || !q.contains(order) {
+                if let Some(p) = prefix {
+                    println!("{} enqueue order: f{} {:?}", p, order.floor, order.order_type);
+                }
+                q.push(order.clone());
+            }
+        }
+    }   
+
     pub async fn elect_master(
-        &mut self,
-        gossip_heartbeats: Vec<HeartbeatMSG>,
+        &mut self, 
+        gossip_heartbeats: Vec<HeartbeatMSG>, 
         network: &mut Heartbeat,
-    ) 
-    {
+    ) {
+        
         let now = Instant::now();
 
         self.last_seen.insert(self.id.clone(), now);
-        for hb in &gossip_heartbeats {
-            self.last_seen.insert(hb.id.clone(), now);
+        for heartbeat in &gossip_heartbeats {
+            self.last_seen.insert(heartbeat.id.clone(), now);
         }
 
         let ttl = self.peer_ttl;
@@ -194,6 +207,7 @@ impl RequestAssigner {
         }
     }
 
+
     pub async fn master(
         &mut self,
         gossip: &[HeartbeatMSG],
@@ -205,9 +219,6 @@ impl RequestAssigner {
         let assignments = self.cost_function().await;
         println!("[MASTER] computed assignments: {:?}", assignments);
 
-        // if the cost function returned no orders for us, fall back to serving
-        // any external orders in our own heartbeat so we don't deadlock when the
-        // assigner misbehaves or the IDs mismatch across machines.
         let self_id = network.id().to_string();
         if !assignments.contains_key(&self_id) && !network.msg.external_orders.is_empty() {
             println!("[MASTER] fallback: enqueuing {} local external orders", network.msg.external_orders.len());
@@ -219,7 +230,6 @@ impl RequestAssigner {
             }
         }
 
-        // Publiser bare hvis assignments faktisk endrer seg
         if assignments != self.last_published_assignments {
             self.last_published_assignments = assignments.clone();
             network.msg.assignments = assignments.clone();
@@ -235,69 +245,21 @@ impl RequestAssigner {
             }
         }
 
-        self.apply_my_assignments_from_map(&network.msg.assignments, network.msg.counter, network, &fsm, true).await;
+        let self_id = network.id().to_string();
+        if let Some(my_orders) = network.msg.assignments.get(&self_id) {
+            self.enqueue_orders(&fsm, my_orders, network.msg.counter, false, Some("(MASTER)")).await;
+        }
     }
 
     pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: Arc<ElevatorFSM>) {
-        if let Some(master_hb) = gossip.iter().find(|hb| matches!(hb.role, Roles::Master)) {
-            println!("[SLAVE] received master heartbeat with assignments {:?} (counter {})", master_hb.assignments, master_hb.counter);
-            self.apply_my_assignments_from_map(&master_hb.assignments, master_hb.counter, network, &fsm, false).await;
+        if let Some(master_heartbeat) = gossip.iter().find(|heartbeat| matches!(heartbeat.role, Roles::Master)) {
+            println!("[SLAVE] received master heartbeat with assignments {:?} (counter {})", master_heartbeat.assignments, master_heartbeat.counter);
+            let my_id = network.id().to_string();
+            if let Some(my_orders) = master_heartbeat.assignments.get(&my_id) {
+                self.enqueue_orders(&fsm, my_orders, master_heartbeat.counter, false, Some("(SLAVE)")).await;
+            }
         } else {
             println!("[SLAVE] no master heartbeat found in gossip");
         }
     }
-
-    async fn apply_my_assignments_from_map(
-        &self,
-        assignments_map: &HashMap<String, Vec<Order>>,
-        assignments_counter: i32,
-        network: &Heartbeat,
-        fsm: &Arc<ElevatorFSM>,
-        is_master: bool,
-    ) {
-        let my_id = network.id().to_string();
-
-        let Some(my_orders) = assignments_map.get(&my_id) else { return; };
-
-        // update counter under inner lock
-        {
-            let mut inner = fsm.inner.lock().await;
-            if assignments_counter == inner.last_received_msg_counter {
-                return;
-            }
-            inner.last_received_msg_counter = assignments_counter;
-        }
-
-        // enqueue orders under queue lock
-        let mut q = fsm.queue.lock().await;
-        for order in my_orders {
-            if !q.contains(order) {
-                if is_master {
-                    println!("(MASTER) enqueue order: f{} {:?}", order.floor, order.order_type);
-                } else {
-                    println!("(SLAVE)  enqueue order: f{} {:?}", order.floor, order.order_type);
-                }
-                q.push(order.clone());
-            }
-        }
-    }
-
-    pub async fn send_to_own_fsm(&self, fsm: &Arc<ElevatorFSM>, heartbeat: HeartbeatMSG) {
-        // update counter
-        {
-            let mut inner = fsm.inner.lock().await;
-            if heartbeat.counter == inner.last_received_msg_counter {
-                println!("Duplicate message with counter {}, skipping", heartbeat.counter);
-                return;
-            }
-            inner.last_received_msg_counter = heartbeat.counter;
-        }
-        println!("send_to_own_fsm called with {} orders (counter: {})", heartbeat.external_orders.len(), heartbeat.counter);
-        let mut q = fsm.queue.lock().await;
-        for order in heartbeat.external_orders {
-            println!("Adding order to queue: floor {}", order.floor);
-            q.push(order);
-        }
-    }
-
 }
