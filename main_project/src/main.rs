@@ -39,7 +39,7 @@ async fn main() {
 
     // let mut injected = false; //kun for ordre én gang
     network.msg.external_orders = vec![
-                Order { floor: 3, order_type: ButtonType::HallUp },
+                Order { floor: 2, order_type: ButtonType::HallUp },
             ];
         network.msg.counter += 1;
 
@@ -59,12 +59,14 @@ async fn main() {
         network.network_controller().await;
 
         let gossip = network.collect_gossip_heartbeats().await;
-        println!("{:#?}",gossip);
+        println!("[MAIN] gossip: {:#?}", gossip);
 
         // determine current master/slave role before acting
         request_assigner
             .elect_master(gossip.clone(), &mut network)
             .await;
+
+        println!("[MAIN] my role = {:?}", request_assigner.role);
 
         match request_assigner.role {
             Roles::Master => {
@@ -73,6 +75,12 @@ async fn main() {
             Roles::Slave => {
                 request_assigner.slave(&gossip, &network, elevator1.clone()).await;
             }
+        }
+
+        // print queue size periodically
+        {
+            let q = elevator1.queue.lock().await;
+            println!("[MAIN] queue length = {}", q.len());
         }
 
         // (previously we drove the elevator here, which blocked the entire loop)

@@ -112,7 +112,6 @@ impl ElevatorFSM {
                 self.transitions(Event::ArrivedAtFloor).await;
                 println!("Order completed");
             } else {
-                println!("går ut av run_queue");
                 break;
             }
         }

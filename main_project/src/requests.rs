@@ -38,7 +38,7 @@ impl RequestAssigner {
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
     let json_str = serde_json::to_string_pretty(&self.message).unwrap();
-    //println!("Message: {}", json_str);
+    println!("[COST] input json:\n{}", json_str);
 
     let child = Command::new("./hall_request_assigner")
         .arg("--input")
@@ -61,6 +61,7 @@ impl RequestAssigner {
     }
 
     let raw: HashMap<String, Vec<Vec<bool>>> = serde_json::from_slice(&output.stdout).unwrap();
+    println!("[COST] raw cost output: {:?}\n", raw);
 
     let mut assignments: HashMap<String, Vec<Order>> = HashMap::new();
 
@@ -202,6 +203,21 @@ impl RequestAssigner {
         self.build_message_from_gossip(gossip, &network.msg);
 
         let assignments = self.cost_function().await;
+        println!("[MASTER] computed assignments: {:?}", assignments);
+
+        // if the cost function returned no orders for us, fall back to serving
+        // any external orders in our own heartbeat so we don't deadlock when the
+        // assigner misbehaves or the IDs mismatch across machines.
+        let self_id = network.id().to_string();
+        if !assignments.contains_key(&self_id) && !network.msg.external_orders.is_empty() {
+            println!("[MASTER] fallback: enqueuing {} local external orders", network.msg.external_orders.len());
+            let mut q = fsm.queue.lock().await;
+            for order in &network.msg.external_orders {
+                if !q.contains(order) {
+                    q.push(order.clone());
+                }
+            }
+        }
 
         // Publiser bare hvis assignments faktisk endrer seg
         if assignments != self.last_published_assignments {
@@ -224,7 +240,10 @@ impl RequestAssigner {
 
     pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: Arc<ElevatorFSM>) {
         if let Some(master_hb) = gossip.iter().find(|hb| matches!(hb.role, Roles::Master)) {
+            println!("[SLAVE] received master heartbeat with assignments {:?} (counter {})", master_hb.assignments, master_hb.counter);
             self.apply_my_assignments_from_map(&master_hb.assignments, master_hb.counter, network, &fsm, false).await;
+        } else {
+            println!("[SLAVE] no master heartbeat found in gossip");
         }
     }
 
