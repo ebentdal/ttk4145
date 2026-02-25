@@ -4,79 +4,100 @@ pub mod types;
 mod networkhandler;
 mod requests;
 
+use std::sync::Arc;
 use types::*;
+use tokio::time::{Duration};
 
-use tokio::time::{timeout, Duration};
 
+// entry point of the elevator application.
+// creates the FSM, network and request assigner, spawns a queue runner and
+// then loops handling networking, elections, button presses, and queue state.
+// returns `()` implicitly; invoked by the Tokio runtime.
 #[tokio::main]
 async fn main() {
     println!("Main started");
 
-    let mut elevator1 = ElevatorFSM::new("localhost:15657").await;
-    elevator1.transitions(Event::NewOrder(1)).await;
-    // elevator1.transitions(Event::NewOrder(1)).await;
-    // elevator1.transitions(Event::ArrivedAtFloor).await;
+    let fsm = Arc::new(ElevatorFSM::new("localhost:15657").await); 
+
+    {
+        fsm.transitions(Event::NewOrder(1)).await; 
+    }
 
     let message = Message {
-        hall_requests: vec![[false, false]; 4], // 4 floors, no hall orders
+        hallRequests: vec![[false, false]; 4],
         states: std::collections::HashMap::new(),
     };
 
-    let _request_assigner = RequestAssigner::new(
-        "elevator1".to_string(),
-        Roles::Master,
-        message,
-    ).await;
-
     let mut network = Heartbeat::new().await;
 
-    let mut gossip_heartbeats: Vec<HeartbeatMSG> = Vec::new();
-
-    let phase1 = async {
-        loop {
-            network.network_controller().await;
-            gossip_heartbeats = network.collect_gossip_heartbeats().await;
-        }
-    };
-    timeout(Duration::from_secs(6), phase1).await;
-
-    println!("Collected gossip_heartbeas {:#?}", gossip_heartbeats);
-
-    //send_to_other_computer(&mut network).await;
-    
+    let mut request_assigner =
+        RequestAssigner::new(network.id().to_string(), Roles::Slave, message).await;
 
 
-}
+    {
+        tokio::spawn({
+            let fsm = Arc::clone(&fsm);
+            async move {
+                loop {
+                    fsm.run_queue().await;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            }
+        });
+    }
 
-
-async fn send_order_to_other_computer(network: &mut Heartbeat) {
-    let test_queue_external= vec![
-        Order { floor: 2, order_type: ButtonType::CabCall },
-        Order { floor: 3, order_type: ButtonType::CabCall },
-    ];
-    
-    network.msg.external_orders = test_queue_external;
-    network.msg.counter += 1;
-
-    let phase1 = async {
-        loop {
-            network.network_controller().await;
-        }
-    };
-    timeout(Duration::from_secs(6), phase1).await;
-    
-    let test_queue_external2 = vec![
-        Order { floor: 0, order_type: ButtonType::CabCall },
-        Order { floor: 1, order_type: ButtonType::CabCall },
-    ];
-
-    network.msg.external_orders = test_queue_external2;
-    network.msg.counter += 1;
-
-    let phase2 = async {
-            loop {
+    loop {
         network.network_controller().await;
+
+        let gossip = network.collect_gossip_heartbeats().await;
+        println!("[MAIN] gossip: {:#?}", gossip);
+
+        request_assigner
+            .elect_master(gossip.clone(), &mut network)
+            .await;
+
+        println!("[MAIN] my role = {:?}", request_assigner.role);
+
+        if let Some(orders) = fsm.check_for_button_press().await {
+            if !orders.is_empty() {
+                println!("[MAIN] button presses detected: {:?}", orders);
+
+                let mut externalOrders = Vec::new();
+                let mut internalOrders = Vec::new();
+                for order in orders {
+                    match order.order_type {
+                        ButtonType::CabCall => internalOrders.push(order),
+                        _ => externalOrders.push(order),
+                    }
+                }
+
+                if !externalOrders.is_empty() {
+                    network.msg.external_orders = externalOrders;
+                }
+                if !internalOrders.is_empty() {
+                    // accumulate internal orders; we keep any previous ones too
+                    network.msg.internal_orders.extend(internalOrders);
+                }
+
+                // bump counter whenever we added anything
+                if !network.msg.external_orders.is_empty() || !network.msg.internal_orders.is_empty() {
+                    network.msg.counter += 1;
+                }
+            }
         }
-    };
-    timeout(Duration::from_secs(6), phase2).await;
+
+        match request_assigner.role {
+            Roles::Master => {
+                request_assigner.master(&gossip, &mut network, fsm.clone()).await;
+            }
+            Roles::Slave => {
+                request_assigner.slave(&gossip, &network, fsm.clone()).await;
+            }
+        }
+
+        {
+            let q = fsm.queue.lock().await;
+            println!("[MAIN] queue length = {}", q.len());
+        }
+    }
 }
