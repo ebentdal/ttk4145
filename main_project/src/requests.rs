@@ -21,7 +21,7 @@ impl RequestAssigner {
                 2 => Direction::Down,
                 _ => Direction::Stop,
             },
-            cab_requests: msg
+            cabRequests: msg
                 .internal_orders()
                 .iter()
                 .map(|o| matches!(o.order_type, ButtonType::CabCall))
@@ -94,7 +94,7 @@ impl RequestAssigner {
         let num_floors = crate::config::NUM_FLOORS as usize;
 
         self.message.states.clear();
-        self.message.hall_requests = vec![[false, false]; num_floors];
+        self.message.hallRequests = vec![[false, false]; num_floors];
 
         // 1) legg inn master sin egen state først (ALLTID)
         self.insert_state_from_hb(own_hb, num_floors);
@@ -125,7 +125,7 @@ impl RequestAssigner {
                 2 => Direction::Down,
                 _ => Direction::Stop,
             },
-            cab_requests: cab,
+            cabRequests: cab,
         };
 
         self.message.states.insert(hb.id.clone(), st);
@@ -136,8 +136,8 @@ impl RequestAssigner {
             let floor = order.floor as usize;
             if floor >= num_floors { continue; }
             match order.order_type {
-                ButtonType::HallUp => self.message.hall_requests[floor][0] = true,
-                ButtonType::HallDown => self.message.hall_requests[floor][1] = true,
+                ButtonType::HallUp => self.message.hallRequests[floor][0] = true,
+                ButtonType::HallDown => self.message.hallRequests[floor][1] = true,
                 _ => {}
             }
         }
@@ -218,18 +218,15 @@ impl RequestAssigner {
             //}
         }
 
-        // MASTER: ta egne ordre direkte fra network.msg.assignments
         self.apply_my_assignments_from_map(&network.msg.assignments, network.msg.counter, network, fsm, true);
     }
 
-    /// SLAVE: finn master i gossip og bruk assignments derfra
     pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: &mut ElevatorFSM) {
         if let Some(master_hb) = gossip.iter().find(|hb| matches!(hb.role, Roles::Master)) {
             self.apply_my_assignments_from_map(&master_hb.assignments, master_hb.counter, network, fsm, false);
         }
     }
 
-    /// Felles: plukk ut mine orders fra et assignment-map og legg dem i køen
     fn apply_my_assignments_from_map(
         &self,
         assignments_map: &HashMap<String, Vec<Order>>,
@@ -242,14 +239,12 @@ impl RequestAssigner {
 
         let Some(my_orders) = assignments_map.get(&my_id) else { return; };
 
-        // Hvis vi allerede har behandlet denne batchen, gjør ingenting
         if assignments_counter == fsm.last_received_msg_counter {
             return;
         }
 
         fsm.last_received_msg_counter = assignments_counter;
 
-        // Dedupe: legg kun inn orders som ikke allerede ligger i queue
         for order in my_orders {
             if !fsm.queue.contains(order) {
                 if is_master {

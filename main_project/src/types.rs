@@ -53,12 +53,9 @@ pub enum Roles {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Behaviour {
-    #[serde(rename = "idle")]
-    Idle,
-    #[serde(rename = "moving")]
-    Moving,
-    #[serde(rename = "doorOpen")]
-    DoorOpen,
+    idle, 
+    moving,
+    doorOpen,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,19 +92,17 @@ pub struct Heartbeat {
 // --- Request assigner types ---
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Message {
-    pub hall_requests: Vec<[bool; 2]>,
+    pub hallRequests: Vec<[bool; 2]>,
     pub states: HashMap<String, ElevatorState>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct ElevatorState {
     pub behaviour: Behaviour,
     pub floor: u8,
     pub direction: Direction,
-    pub cab_requests: Vec<bool>, // blir "cabRequests" utad
+    pub cabRequests: Vec<bool>, // blir "cabRequests" utad
 }
 
 pub struct RequestAssigner {

@@ -4,10 +4,9 @@ pub mod types;
 mod networkhandler;
 mod requests;
 
-use std::collections::HashMap;
 use types::*;
-use tokio::time::{timeout, Duration};
-use crate::config::NUM_FLOORS;
+use tokio::time::{Duration};
+
 
 #[tokio::main]
 async fn main() {
@@ -17,7 +16,7 @@ async fn main() {
     elevator1.transitions(Event::NewOrder(1)).await; //kjører heisen til første etajse
 
     let message = Message {
-        hall_requests: vec![[false, false]; 4],
+        hallRequests: vec![[false, false]; 4],
         states: std::collections::HashMap::new(),
     };
 
@@ -39,8 +38,8 @@ async fn main() {
 
         if !injected {
             network.msg.external_orders = vec![
-                //Order { floor: 2, order_type: ButtonType::HallUp },
-                //Order { floor: 3, order_type: ButtonType::HallDown },
+                Order { floor: 1, order_type: ButtonType::HallUp },
+                Order { floor: 2, order_type: ButtonType::HallDown },
             ];
             network.msg.counter += 1;
             injected = true;

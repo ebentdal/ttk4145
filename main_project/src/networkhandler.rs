@@ -23,7 +23,7 @@ impl Heartbeat {
             internal_orders: Vec::new(),
             floor: 0,
             direction: 0,
-            status: Behaviour::Idle,
+            status: Behaviour::idle,
             counter: 0,
             role: Roles::Slave,
             assignments: HashMap::new(),
