@@ -5,7 +5,6 @@ mod networkhandler;
 mod requests;
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 use types::*;
 use tokio::time::{Duration};
@@ -18,11 +17,10 @@ async fn main() {
     // wrap elevator in Arc<Mutex> so we can drive it concurrently with the
     // network/task loop without holding a mutable borrow for long periods.
 
-    let elevator1 = Arc::new(Mutex::new(ElevatorFSM::new("localhost:15657").await)); //TODO: endre navn på elevator1
+    let elevator1 = Arc::new(ElevatorFSM::new("localhost:15657").await); //TODO: endre navn på elevator1
     // kick off an initial movement if desired, locking briefly
     {
-        let mut elev = elevator1.lock().await;
-        elev.transitions(Event::NewOrder(1)).await; //kjører heisen til første etajse
+        elevator1.transitions(Event::NewOrder(1)).await; //kjører heisen til første etajse
     }
 
     let message = Message {
@@ -50,12 +48,8 @@ async fn main() {
         let elevator_clone = elevator1.clone();
         tokio::spawn(async move {
             loop {
-                {
-                    let mut e = elevator_clone.lock().await;
-                    if !e.queue.is_empty() {
-                        e.run_queue().await;
-                    }
-                }
+                // simply call run_queue; it will manage its own locks
+                elevator_clone.run_queue().await;
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         });
@@ -67,6 +61,10 @@ async fn main() {
         let gossip = network.collect_gossip_heartbeats().await;
         println!("{:#?}",gossip);
 
+        // determine current master/slave role before acting
+        request_assigner
+            .elect_master(gossip.clone(), &mut network)
+            .await;
 
         match request_assigner.role {
             Roles::Master => {
@@ -80,7 +78,6 @@ async fn main() {
         // (previously we drove the elevator here, which blocked the entire loop)
         // the actual movement is handled by a background task started earlier
         // so nothing to do here.
-
     }
 }
 

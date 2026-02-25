@@ -33,14 +33,20 @@ pub enum ButtonType {
     HallDown,
 }
 
-pub struct ElevatorFSM {
-    pub queue: Vec<Order>,
+use tokio::sync::Mutex;
+
+pub struct ElevatorInner {
     pub fsm: Elevator,
     pub obstruction: bool,
     pub prev_floor: u8,
     pub elev_id: String,
     pub state: ElevState,
     pub last_received_msg_counter: i32,
+}
+
+pub struct ElevatorFSM {
+    pub queue: Mutex<Vec<Order>>,
+    pub inner: Mutex<ElevatorInner>,
 }
 
 // --- Shared types 

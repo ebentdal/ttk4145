@@ -9,7 +9,6 @@ use std::str::FromStr;
 use tokio::time::Instant;
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 impl RequestAssigner {
     pub async fn new(id: String, role: Roles, message: Message) -> Self {
@@ -198,7 +197,7 @@ impl RequestAssigner {
         &mut self,
         gossip: &[HeartbeatMSG],
         network: &mut Heartbeat,
-        fsm: Arc<Mutex<ElevatorFSM>>,
+        fsm: Arc<ElevatorFSM>,
     ) {
         self.build_message_from_gossip(gossip, &network.msg);
 
@@ -223,7 +222,7 @@ impl RequestAssigner {
         self.apply_my_assignments_from_map(&network.msg.assignments, network.msg.counter, network, &fsm, true).await;
     }
 
-    pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: Arc<Mutex<ElevatorFSM>>) {
+    pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: Arc<ElevatorFSM>) {
         if let Some(master_hb) = gossip.iter().find(|hb| matches!(hb.role, Roles::Master)) {
             self.apply_my_assignments_from_map(&master_hb.assignments, master_hb.counter, network, &fsm, false).await;
         }
@@ -234,44 +233,51 @@ impl RequestAssigner {
         assignments_map: &HashMap<String, Vec<Order>>,
         assignments_counter: i32,
         network: &Heartbeat,
-        fsm: &Arc<Mutex<ElevatorFSM>>,
+        fsm: &Arc<ElevatorFSM>,
         is_master: bool,
     ) {
         let my_id = network.id().to_string();
 
         let Some(my_orders) = assignments_map.get(&my_id) else { return; };
 
-        let mut f = fsm.lock().await;
-        if assignments_counter == f.last_received_msg_counter {
-            return;
+        // update counter under inner lock
+        {
+            let mut inner = fsm.inner.lock().await;
+            if assignments_counter == inner.last_received_msg_counter {
+                return;
+            }
+            inner.last_received_msg_counter = assignments_counter;
         }
 
-        f.last_received_msg_counter = assignments_counter;
-
+        // enqueue orders under queue lock
+        let mut q = fsm.queue.lock().await;
         for order in my_orders {
-            if !f.queue.contains(order) {
+            if !q.contains(order) {
                 if is_master {
                     println!("(MASTER) enqueue order: f{} {:?}", order.floor, order.order_type);
                 } else {
                     println!("(SLAVE)  enqueue order: f{} {:?}", order.floor, order.order_type);
                 }
-                f.queue.push(order.clone());
+                q.push(order.clone());
             }
         }
     }
 
-    pub async fn send_to_own_fsm(&self, fsm: &Arc<Mutex<ElevatorFSM>>, heartbeat: HeartbeatMSG) {
-        let mut f = fsm.lock().await;
-        if heartbeat.counter == f.last_received_msg_counter {
-            println!("Duplicate message with counter {}, skipping", heartbeat.counter);
-            return;
+    pub async fn send_to_own_fsm(&self, fsm: &Arc<ElevatorFSM>, heartbeat: HeartbeatMSG) {
+        // update counter
+        {
+            let mut inner = fsm.inner.lock().await;
+            if heartbeat.counter == inner.last_received_msg_counter {
+                println!("Duplicate message with counter {}, skipping", heartbeat.counter);
+                return;
+            }
+            inner.last_received_msg_counter = heartbeat.counter;
         }
-        
-        f.last_received_msg_counter = heartbeat.counter;
         println!("send_to_own_fsm called with {} orders (counter: {})", heartbeat.external_orders.len(), heartbeat.counter);
+        let mut q = fsm.queue.lock().await;
         for order in heartbeat.external_orders {
             println!("Adding order to queue: floor {}", order.floor);
-            f.queue.push(order);
+            q.push(order);
         }
     }
 
