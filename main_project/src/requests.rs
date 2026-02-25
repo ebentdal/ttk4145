@@ -4,6 +4,12 @@ use crate::{config::NUM_FLOORS, types::{ElevatorFSM, Event, Order}};
 use tokio::process::Command;
 use std::process::Stdio;
 use crate::types::*;
+use std::net::IpAddr;
+use std::str::FromStr;
+use tokio::time::Instant;
+
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 impl RequestAssigner {
     pub async fn new(id: String, role: Roles, message: Message) -> Self {
@@ -86,6 +92,7 @@ impl RequestAssigner {
     }
     assignments
     }
+
     pub fn build_message_from_gossip(
         &mut self,
         gossip: &[HeartbeatMSG],
@@ -96,11 +103,9 @@ impl RequestAssigner {
         self.message.states.clear();
         self.message.hallRequests = vec![[false, false]; num_floors];
 
-        // 1) legg inn master sin egen state først (ALLTID)
         self.insert_state_from_hb(own_hb, num_floors);
         self.union_hall_from_hb(own_hb, num_floors);
 
-        // 2) legg inn alle andre fra gossip
         for hb in gossip {
             self.insert_state_from_hb(hb, num_floors);
             self.union_hall_from_hb(hb, num_floors);
@@ -147,11 +152,8 @@ impl RequestAssigner {
         &mut self,
         gossip_heartbeats: Vec<HeartbeatMSG>,
         network: &mut Heartbeat,
-    ) {
-        use std::net::IpAddr;
-        use std::str::FromStr;
-        use tokio::time::Instant;
-
+    ) 
+    {
         let now = Instant::now();
 
         self.last_seen.insert(self.id.clone(), now);
@@ -196,7 +198,7 @@ impl RequestAssigner {
         &mut self,
         gossip: &[HeartbeatMSG],
         network: &mut Heartbeat,
-        fsm: &mut ElevatorFSM,
+        fsm: Arc<Mutex<ElevatorFSM>>,
     ) {
         self.build_message_from_gossip(gossip, &network.msg);
 
@@ -208,66 +210,68 @@ impl RequestAssigner {
             network.msg.assignments = assignments.clone();
             network.msg.counter += 1;
 
-            //println!("\n--- ASSIGNMENTS (published) ---");
-            //for (id, orders) in &assignments {
-                //print!("{}: ", id);
-                //for order in orders {
-                    //print!("[f{} {:?}] ", order.floor, order.order_type);
-                //}
-                //println!();
-            //}
+            println!("\n--- ASSIGNMENTS (published) ---");
+            for (id, orders) in &assignments {
+                print!("{}: ", id);
+                for order in orders {
+                    print!("[f{} {:?}] ", order.floor, order.order_type);
+                }
+                println!();
+            }
         }
 
-        self.apply_my_assignments_from_map(&network.msg.assignments, network.msg.counter, network, fsm, true);
+        self.apply_my_assignments_from_map(&network.msg.assignments, network.msg.counter, network, &fsm, true).await;
     }
 
-    pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: &mut ElevatorFSM) {
+    pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: Arc<Mutex<ElevatorFSM>>) {
         if let Some(master_hb) = gossip.iter().find(|hb| matches!(hb.role, Roles::Master)) {
-            self.apply_my_assignments_from_map(&master_hb.assignments, master_hb.counter, network, fsm, false);
+            self.apply_my_assignments_from_map(&master_hb.assignments, master_hb.counter, network, &fsm, false).await;
         }
     }
 
-    fn apply_my_assignments_from_map(
+    async fn apply_my_assignments_from_map(
         &self,
         assignments_map: &HashMap<String, Vec<Order>>,
         assignments_counter: i32,
         network: &Heartbeat,
-        fsm: &mut ElevatorFSM,
+        fsm: &Arc<Mutex<ElevatorFSM>>,
         is_master: bool,
     ) {
         let my_id = network.id().to_string();
 
         let Some(my_orders) = assignments_map.get(&my_id) else { return; };
 
-        if assignments_counter == fsm.last_received_msg_counter {
+        let mut f = fsm.lock().await;
+        if assignments_counter == f.last_received_msg_counter {
             return;
         }
 
-        fsm.last_received_msg_counter = assignments_counter;
+        f.last_received_msg_counter = assignments_counter;
 
         for order in my_orders {
-            if !fsm.queue.contains(order) {
+            if !f.queue.contains(order) {
                 if is_master {
                     println!("(MASTER) enqueue order: f{} {:?}", order.floor, order.order_type);
                 } else {
                     println!("(SLAVE)  enqueue order: f{} {:?}", order.floor, order.order_type);
                 }
-                fsm.queue.push(order.clone());
+                f.queue.push(order.clone());
             }
         }
     }
 
-    pub async fn send_to_own_fsm(&self, fsm: &mut ElevatorFSM, heartbeat: HeartbeatMSG) {
-        if heartbeat.counter == fsm.last_received_msg_counter {
+    pub async fn send_to_own_fsm(&self, fsm: &Arc<Mutex<ElevatorFSM>>, heartbeat: HeartbeatMSG) {
+        let mut f = fsm.lock().await;
+        if heartbeat.counter == f.last_received_msg_counter {
             println!("Duplicate message with counter {}, skipping", heartbeat.counter);
             return;
         }
         
-        fsm.last_received_msg_counter = heartbeat.counter;
+        f.last_received_msg_counter = heartbeat.counter;
         println!("send_to_own_fsm called with {} orders (counter: {})", heartbeat.external_orders.len(), heartbeat.counter);
         for order in heartbeat.external_orders {
             println!("Adding order to queue: floor {}", order.floor);
-            fsm.queue.push(order);
+            f.queue.push(order);
         }
     }
 

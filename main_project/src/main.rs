@@ -4,6 +4,9 @@ pub mod types;
 mod networkhandler;
 mod requests;
 
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 use types::*;
 use tokio::time::{Duration};
 
@@ -12,8 +15,15 @@ use tokio::time::{Duration};
 async fn main() {
     println!("Main started");
 
-    let mut elevator1 = ElevatorFSM::new("localhost:15657").await; //TODO: endre navn på elevator1
-    elevator1.transitions(Event::NewOrder(1)).await; //kjører heisen til første etajse
+    // wrap elevator in Arc<Mutex> so we can drive it concurrently with the
+    // network/task loop without holding a mutable borrow for long periods.
+
+    let elevator1 = Arc::new(Mutex::new(ElevatorFSM::new("localhost:15657").await)); //TODO: endre navn på elevator1
+    // kick off an initial movement if desired, locking briefly
+    {
+        let mut elev = elevator1.lock().await;
+        elev.transitions(Event::NewOrder(1)).await; //kjører heisen til første etajse
+    }
 
     let message = Message {
         hallRequests: vec![[false, false]; 4],
@@ -29,41 +39,48 @@ async fn main() {
         message,
     ).await;
 
-    let mut injected = false; //kun for ordre én gang
+    // let mut injected = false; //kun for ordre én gang
+    network.msg.external_orders = vec![
+                Order { floor: 3, order_type: ButtonType::HallUp },
+            ];
+        network.msg.counter += 1;
+
+// spawn a task to handle the elevator queue continuously
+    {
+        let elevator_clone = elevator1.clone();
+        tokio::spawn(async move {
+            loop {
+                {
+                    let mut e = elevator_clone.lock().await;
+                    if !e.queue.is_empty() {
+                        e.run_queue().await;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        });
+    }
 
     loop {
         network.network_controller().await;
 
         let gossip = network.collect_gossip_heartbeats().await;
+        println!("{:#?}",gossip);
 
-        if !injected {
-            network.msg.external_orders = vec![
-                Order { floor: 1, order_type: ButtonType::HallUp },
-                Order { floor: 2, order_type: ButtonType::HallDown },
-            ];
-            network.msg.counter += 1;
-            injected = true;
-        }
-
-        request_assigner
-            .elect_master(gossip.clone(), &mut network)
-            .await;
 
         match request_assigner.role {
             Roles::Master => {
-                request_assigner.master(&gossip, &mut network, &mut elevator1).await;
+                request_assigner.master(&gossip, &mut network, elevator1.clone()).await;
             }
             Roles::Slave => {
-                request_assigner.slave(&gossip, &network, &mut elevator1).await;
+                request_assigner.slave(&gossip, &network, elevator1.clone()).await;
             }
         }
 
-        // Kjør heisen hvis vi har noe i kø
-        if !elevator1.queue.is_empty() {
-            elevator1.run_queue().await;
-        }
+        // (previously we drove the elevator here, which blocked the entire loop)
+        // the actual movement is handled by a background task started earlier
+        // so nothing to do here.
 
-        tokio::time::sleep(Duration::from_millis(300)).await;
     }
 }
 
