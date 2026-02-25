@@ -3,6 +3,8 @@ use driver_rust::elevio::elev::Elevator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::time::{Instant, Duration};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 
 // --- FSM types ---
@@ -26,11 +28,12 @@ pub struct Order {
     pub order_type: ButtonType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, EnumIter, Copy)]
 pub enum ButtonType {
-    CabCall,
-    HallUp,
-    HallDown,
+    CabCall = 2,
+    HallUp = 0,
+    HallDown = 1,
 }
 
 use tokio::sync::Mutex;

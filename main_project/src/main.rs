@@ -6,6 +6,7 @@ mod requests;
 
 use std::sync::Arc;
 
+use driver_rust::elevio::elev::Elevator;
 use types::*;
 use tokio::time::{Duration};
 
@@ -37,13 +38,7 @@ async fn main() {
         message,
     ).await;
 
-    // let mut injected = false; //kun for ordre én gang
-    network.msg.external_orders = vec![
-                Order { floor: 2, order_type: ButtonType::HallUp },
-            ];
-        network.msg.counter += 1;
 
-// spawn a task to handle the elevator queue continuously
     {
         let elevator_clone = elevator1.clone();
         tokio::spawn(async move {
@@ -67,6 +62,36 @@ async fn main() {
             .await;
 
         println!("[MAIN] my role = {:?}", request_assigner.role);
+
+        // read actual button presses; check_for_button_press now returns Option<Vec<Order>>
+        if let Some(orders) = elevator1.check_for_button_press().await {
+            if !orders.is_empty() {
+                println!("[MAIN] button presses detected: {:?}", orders);
+
+                // separate cab calls (internal) from hall orders (external)
+                let mut ext = Vec::new();
+                let mut int = Vec::new();
+                for order in orders {
+                    match order.order_type {
+                        ButtonType::CabCall => int.push(order),
+                        _ => ext.push(order),
+                    }
+                }
+
+                if !ext.is_empty() {
+                    network.msg.external_orders = ext;
+                }
+                if !int.is_empty() {
+                    // accumulate internal orders; we keep any previous ones too
+                    network.msg.internal_orders.extend(int);
+                }
+
+                // bump counter whenever we added anything
+                if !network.msg.external_orders.is_empty() || !network.msg.internal_orders.is_empty() {
+                    network.msg.counter += 1;
+                }
+            }
+        }
 
         match request_assigner.role {
             Roles::Master => {

@@ -3,8 +3,9 @@ use driver_rust::elevio;
 use driver_rust::elevio::elev::{DIRN_DOWN, DIRN_STOP, DIRN_UP};
 use std::time::Duration;
 use tokio::time::sleep;
-use crate::config;
-use crate::types::{ElevatorFSM, ElevState, Event, ElevatorInner};
+use crate::config::{self, NUM_FLOORS};
+use crate::types::*;
+use strum::IntoEnumIterator;
 
 impl ElevatorFSM {
     pub async fn new(addr: &str) -> Self {
@@ -66,6 +67,24 @@ impl ElevatorFSM {
             _ => return,
         }
     }
+    
+    pub async fn check_for_button_press(&self) -> Option<Vec<Order>> {
+        let mut button_press = Vec::new();
+        let inner = self.inner.lock().await;
+
+        for floor in 0..NUM_FLOORS {
+            for button in ButtonType::iter() {
+                if Elevator::call_button(&inner.fsm, floor, button as u8) {
+                    button_press.push(Order {
+                    floor,
+                    order_type: button,
+                    });
+                }
+            }
+        }
+        drop(inner);
+        return Some(button_press);
+    }   
 
     pub async fn go_to_floor(&self, target_floor: u8) {
         // acquire hardware lock for the duration of movement
