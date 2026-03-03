@@ -220,6 +220,11 @@ impl RequestAssigner {
                 network.msg.external_orders.retain(|order| order != cleared);
             }
         }
+        
+        // Also check own completed orders
+        if let Some(cleared) = &network.msg.clearedOrder {
+            network.msg.external_orders.retain(|order| order != cleared);
+        }
 
         self.build_message_from_gossip(gossip, &network.msg);
 

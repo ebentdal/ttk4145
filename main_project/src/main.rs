@@ -34,6 +34,7 @@ async fn main() {
         RequestAssigner::new(network.id().to_string(), Roles::Slave, message).await;
 
     let (completed_tx, mut completed_rx) = tokio::sync::mpsc::unbounded_channel::<Order>();
+    let mut clear_completed_after = None::<tokio::time::Instant>;
 
     {
         tokio::spawn({
@@ -106,6 +107,16 @@ async fn main() {
         while let Ok(order) = completed_rx.try_recv() {
             println!("[MAIN] Order completed: f{} {:?}", order.floor, order.order_type);
             network.order_completed(order);
+            clear_completed_after = Some(tokio::time::Instant::now() + Duration::from_secs(1));
+        }
+        
+        // Clear clearedOrder after 1 second of broadcasting
+        if let Some(clear_time) = clear_completed_after {
+            if tokio::time::Instant::now() >= clear_time && network.msg.clearedOrder.is_some() {
+                network.msg.clearedOrder = None;
+                network.msg.counter += 1;
+                clear_completed_after = None;
+            }
         }
     }
 }
