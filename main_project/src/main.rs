@@ -80,7 +80,10 @@ async fn main() {
                 }
                 if !internalOrders.is_empty() {
                     // accumulate internal orders; we keep any previous ones too
-                    network.msg.internal_orders.extend(internalOrders);
+                    network.msg.internal_orders.extend(internalOrders.clone());
+                    
+                    // Turn on lights for internal orders immediately
+                    fsm.set_button_light(&internalOrders, true).await;
                 }
 
                 // bump counter whenever we added anything
@@ -106,6 +109,7 @@ async fn main() {
 
         while let Ok(order) = completed_rx.try_recv() {
             println!("[MAIN] Order completed: f{} {:?}", order.floor, order.order_type);
+            fsm.set_button_light(&[order.clone()], false).await;
             network.order_completed(order);
             clear_completed_after = Some(tokio::time::Instant::now() + Duration::from_secs(1));
         }

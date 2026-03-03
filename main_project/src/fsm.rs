@@ -149,4 +149,11 @@ impl ElevatorFSM {
         Elevator::door_light(&inner.fsm, false);
         
     }
+
+    pub async fn set_button_light(&self, orders: &[Order], on: bool) {
+        let inner = self.inner.lock().await;
+        for order in orders {
+            Elevator::call_button_light(&inner.fsm, order.floor, order.order_type as u8, on);
+        }
+    }
 }
