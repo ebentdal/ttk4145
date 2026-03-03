@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-use serde_json::to_string_pretty;
-use crate::{config::NUM_FLOORS, types::{ElevatorFSM, Event, Order}};
+use crate::types::{ElevatorFSM, Order};
 use tokio::process::Command;
 use std::process::Stdio;
 use crate::types::*;
@@ -87,7 +86,7 @@ impl RequestAssigner {
         let num_floors = crate::config::NUM_FLOORS as usize;
 
         self.message.states.clear();
-        self.message.hallRequests = vec![[false, false]; num_floors];
+        self.message.hall_requests = vec![[false, false]; num_floors];
 
         self.insert_state_from_heartbeat(own_heartbeat, num_floors);
         self.merge_external_orders(own_heartbeat, num_floors);
@@ -116,7 +115,7 @@ impl RequestAssigner {
                 2 => Direction::Down,
                 _ => Direction::Stop,
             },
-            cabRequests: cab,
+            cab_requests: cab,
         };
 
         self.message.states.insert(heartbeat.id.clone(), st);
@@ -127,8 +126,8 @@ impl RequestAssigner {
             let floor = order.floor as usize;
             if floor >= num_floors { continue; }
             match order.order_type {
-                ButtonType::HallUp => self.message.hallRequests[floor][0] = true,
-                ButtonType::HallDown => self.message.hallRequests[floor][1] = true,
+                ButtonType::HallUp => self.message.hall_requests[floor][0] = true,
+                ButtonType::HallDown => self.message.hall_requests[floor][1] = true,
                 _ => {}
             }
         }
@@ -216,14 +215,14 @@ impl RequestAssigner {
     ) {
         // Remove orders marked as completed in heartbeats
         for heartbeat in gossip {
-            if let Some(cleared) = &heartbeat.clearedOrder {
+            if let Some(cleared) = &heartbeat.cleared_order {
                 network.msg.external_orders.retain(|order| order != cleared);
                 network.msg.internal_orders.retain(|order| order != cleared);
             }
         }
         
         // Also check own completed orders
-        if let Some(cleared) = &network.msg.clearedOrder {
+        if let Some(cleared) = &network.msg.cleared_order {
             network.msg.external_orders.retain(|order| order != cleared);
             network.msg.internal_orders.retain(|order| order != cleared);
         }
@@ -276,8 +275,8 @@ impl RequestAssigner {
                 self.enqueue_orders(&fsm, my_orders, master_heartbeat.counter, false, Some("(SLAVE)")).await;
             }
             
-            // Update button lights to match master's all orders (external + internal)
-            fsm.set_button_light(&master_heartbeat.external_orders, &master_heartbeat.internal_orders).await;
+            // Hall lights from master (shared), cab lights from own orders only
+            fsm.set_button_light(&master_heartbeat.external_orders, &network.msg.internal_orders).await;
         } else {
             println!("[SLAVE] no master heartbeat found in gossip");
         }

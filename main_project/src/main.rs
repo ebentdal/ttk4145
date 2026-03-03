@@ -20,11 +20,11 @@ async fn main() {
     let fsm = Arc::new(ElevatorFSM::new("localhost:5643").await); 
 
     {
-        fsm.transitions(Event::NewOrder(1)).await; 
+        fsm.handle_event(Event::NewOrder(1)).await;
     }
 
     let message = Message {
-        hallRequests: vec![[false, false]; 4],
+        hall_requests: vec![[false, false]; 4],
         states: std::collections::HashMap::new(),
     };
 
@@ -41,7 +41,7 @@ async fn main() {
             let fsm = Arc::clone(&fsm);
             async move {
                 loop {
-                    if let Some(order) = fsm.run_queue().await {
+                    if let Some(order) = fsm.process_next_order().await {
                         let _ = completed_tx.send(order);
                     }
                     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -51,6 +51,11 @@ async fn main() {
     }
 
     loop {
+        let (floor, direction, status) = fsm.get_state().await;
+        network.msg.floor = floor;
+        network.msg.direction = direction;
+        network.msg.status = status;
+
         network.network_controller().await;
 
         let gossip = network.collect_gossip_heartbeats().await;
@@ -62,31 +67,28 @@ async fn main() {
 
         println!("[MAIN] my role = {:?}", request_assigner.role);
 
-        if let Some(orders) = fsm.check_for_button_press().await {
-            if !orders.is_empty() {
-                println!("[MAIN] button presses detected: {:?}", orders);
+        let orders = fsm.poll_buttons().await;
+        if !orders.is_empty() {
+            println!("[MAIN] button presses detected: {:?}", orders);
 
-                let mut externalOrders = Vec::new();
-                let mut internalOrders = Vec::new();
-                for order in orders {
-                    match order.order_type {
-                        ButtonType::CabCall => internalOrders.push(order),
-                        _ => externalOrders.push(order),
-                    }
+            let mut external_orders = Vec::new();
+            let mut internal_orders = Vec::new();
+            for order in orders {
+                match order.order_type {
+                    ButtonType::CabCall => internal_orders.push(order),
+                    _ => external_orders.push(order),
                 }
+            }
 
-                if !externalOrders.is_empty() {
-                    network.msg.external_orders = externalOrders;
-                }
-                if !internalOrders.is_empty() {
-                    // accumulate internal orders; we keep any previous ones too
-                    network.msg.internal_orders.extend(internalOrders);
-                }
+            if !external_orders.is_empty() {
+                network.msg.external_orders = external_orders;
+            }
+            if !internal_orders.is_empty() {
+                network.msg.internal_orders.extend(internal_orders);
+            }
 
-                // bump counter whenever we added anything
-                if !network.msg.external_orders.is_empty() || !network.msg.internal_orders.is_empty() {
-                    network.msg.counter += 1;
-                }
+            if !network.msg.external_orders.is_empty() || !network.msg.internal_orders.is_empty() {
+                network.msg.counter += 1;
             }
         }
 
@@ -112,8 +114,8 @@ async fn main() {
         
         // Clear clearedOrder after 1 second of broadcasting
         if let Some(clear_time) = clear_completed_after {
-            if tokio::time::Instant::now() >= clear_time && network.msg.clearedOrder.is_some() {
-                network.msg.clearedOrder = None;
+            if tokio::time::Instant::now() >= clear_time && network.msg.cleared_order.is_some() {
+                network.msg.cleared_order = None;
                 network.msg.counter += 1;
                 clear_completed_after = None;
             }
