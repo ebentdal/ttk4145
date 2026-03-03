@@ -17,7 +17,7 @@ use tokio::time::{Duration};
 async fn main() {
     println!("Main started");
 
-    let fsm = Arc::new(ElevatorFSM::new("localhost:15657").await); 
+    let fsm = Arc::new(ElevatorFSM::new("localhost:5643").await); 
 
     {
         fsm.transitions(Event::NewOrder(1)).await; 

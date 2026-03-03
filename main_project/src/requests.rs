@@ -214,6 +214,13 @@ impl RequestAssigner {
         network: &mut Heartbeat,
         fsm: Arc<ElevatorFSM>,
     ) {
+        // Remove orders marked as completed in heartbeats
+        for heartbeat in gossip {
+            if let Some(cleared) = &heartbeat.clearedOrder {
+                network.msg.external_orders.retain(|order| order != cleared);
+            }
+        }
+
         self.build_message_from_gossip(gossip, &network.msg);
 
         let assignments = self.cost_function().await;

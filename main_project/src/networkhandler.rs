@@ -28,6 +28,7 @@ impl Heartbeat {
             counter: 0,
             role: Roles::Slave,
             assignments: HashMap::new(),
+            clearedOrder: None,
         };
 
         Self {
@@ -155,5 +156,11 @@ impl Heartbeat {
 
     pub fn internal_orders(&self) -> &Vec<Order> {
         &self.msg.internal_orders
+    }
+
+    pub async fn order_completed(mut self, order: Order) {
+        self.msg.clearedOrder = Some(order);
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        self.msg.clearedOrder = None;
     }
 }

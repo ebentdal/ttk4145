@@ -88,6 +88,7 @@ pub struct HeartbeatMSG {
     pub counter: i32,
     pub role: Roles,
     pub assignments: std::collections::HashMap<String, Vec<Order>>, 
+    pub clearedOrder: Option<Order>, 
 }
 
 pub struct Heartbeat {
