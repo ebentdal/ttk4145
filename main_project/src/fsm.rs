@@ -150,12 +150,18 @@ impl ElevatorFSM {
         
     }
 
-    pub async fn set_button_light(&self, orders: &[Order]) {
+    pub async fn set_button_light(&self, external_orders: &[Order], internal_orders: &[Order]) {
         let inner = self.inner.lock().await;
+        
+        // Combine external and internal orders
+        let all_orders: Vec<Order> = external_orders.iter()
+            .chain(internal_orders.iter())
+            .cloned()
+            .collect();
         
         for floor in 0..NUM_FLOORS {
             for button in ButtonType::iter() {
-                let has_order = orders.iter().any(|o| o.floor == floor && o.order_type == button);
+                let has_order = all_orders.iter().any(|o| o.floor == floor && o.order_type == button);
                 Elevator::call_button_light(&inner.fsm, floor, button as u8, has_order);
             }
         }
