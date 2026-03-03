@@ -262,8 +262,8 @@ impl RequestAssigner {
             self.enqueue_orders(&fsm, my_orders, network.msg.counter, false, Some("(MASTER)")).await;
         }
         
-        // Turn on lights for all external orders
-        fsm.set_button_light(&network.msg.external_orders, true).await;
+        // Update button lights to match external orders
+        fsm.set_button_light(&network.msg.external_orders).await;
     }
 
     pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: Arc<ElevatorFSM>) {
@@ -274,8 +274,8 @@ impl RequestAssigner {
                 self.enqueue_orders(&fsm, my_orders, master_heartbeat.counter, false, Some("(SLAVE)")).await;
             }
             
-            // Turn on lights for external orders from master
-            fsm.set_button_light(&master_heartbeat.external_orders, true).await;
+            // Update button lights to match master's external orders
+            fsm.set_button_light(&master_heartbeat.external_orders).await;
         } else {
             println!("[SLAVE] no master heartbeat found in gossip");
         }
