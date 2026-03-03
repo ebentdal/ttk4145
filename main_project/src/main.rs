@@ -33,13 +33,16 @@ async fn main() {
     let mut request_assigner =
         RequestAssigner::new(network.id().to_string(), Roles::Slave, message).await;
 
+    let (completed_tx, mut completed_rx) = tokio::sync::mpsc::unbounded_channel::<Order>();
 
     {
         tokio::spawn({
             let fsm = Arc::clone(&fsm);
             async move {
                 loop {
-                    fsm.run_queue().await;
+                    if let Some(order) = fsm.run_queue().await {
+                        let _ = completed_tx.send(order);
+                    }
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
             }
@@ -98,6 +101,11 @@ async fn main() {
         {
             let q = fsm.queue.lock().await;
             println!("[MAIN] queue length = {}", q.len());
+        }
+
+        while let Ok(order) = completed_rx.try_recv() {
+            println!("[MAIN] Order completed: f{} {:?}", order.floor, order.order_type);
+            network.order_completed(order);
         }
     }
 }

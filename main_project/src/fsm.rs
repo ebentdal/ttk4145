@@ -114,27 +114,24 @@ impl ElevatorFSM {
     }
 
 
-     pub async fn run_queue(&self) {
-        loop {
-            // take next order out of queue without holding hardware lock
-            let order = {
-                let mut q = self.queue.lock().await;
-                if q.is_empty() {
-                    None
-                } else {
-                    Some(q.remove(0))
-                }
-            };
-
-            if let Some(order) = order {
-                println!("Processing order to floor {}", order.floor);
-                self.transitions(Event::NewOrder(order.floor)).await;
-                self.transitions(Event::ArrivedAtFloor).await;
-                println!("Order completed");
+     pub async fn run_queue(&self) -> Option<Order> {
+        let order = {
+            let mut q = self.queue.lock().await;
+            if q.is_empty() {
+                None
             } else {
-                break;
+                Some(q.remove(0))
             }
+        };
+
+        if let Some(order) = order {
+            println!("Processing order to floor {}", order.floor);
+            self.transitions(Event::NewOrder(order.floor)).await;
+            self.transitions(Event::ArrivedAtFloor).await;
+            println!("Order completed");
+            return Some(order);
         }
+        None
     }
 
 
@@ -150,5 +147,6 @@ impl ElevatorFSM {
         sleep(Duration::from_secs(3)).await;
         let mut inner = self.inner.lock().await;
         Elevator::door_light(&inner.fsm, false);
+        
     }
 }
