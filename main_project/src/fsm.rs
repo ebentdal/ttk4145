@@ -153,7 +153,6 @@ impl ElevatorFSM {
     pub async fn set_button_light(&self, orders: &[Order]) {
         let inner = self.inner.lock().await;
         
-        // Turn on lights for orders in the list, turn off all others
         for floor in 0..NUM_FLOORS {
             for button in ButtonType::iter() {
                 let has_order = orders.iter().any(|o| o.floor == floor && o.order_type == button);
