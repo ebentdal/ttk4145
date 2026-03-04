@@ -112,7 +112,7 @@ async fn main() {
             clear_completed_after = Some(tokio::time::Instant::now() + Duration::from_secs(1));
         }
         
-        // Clear clearedOrder after 1 second of broadcasting
+        // Clear cleared_order after 1 second of broadcasting
         if let Some(clear_time) = clear_completed_after {
             if tokio::time::Instant::now() >= clear_time && network.msg.cleared_order.is_some() {
                 network.msg.cleared_order = None;
