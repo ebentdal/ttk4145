@@ -89,11 +89,15 @@ async fn main() {
                 }
             }
 
-            if !external_orders.is_empty() {
-                network.msg.external_orders = external_orders;
+            for order in external_orders {
+                if !network.msg.external_orders.contains(&order) {
+                    network.msg.external_orders.push(order);
+                }
             }
-            if !internal_orders.is_empty() {
-                network.msg.internal_orders.extend(internal_orders);
+            for order in internal_orders {
+                if !network.msg.internal_orders.contains(&order) {
+                    network.msg.internal_orders.push(order);
+                }
             }
 
             if !network.msg.external_orders.is_empty() || !network.msg.internal_orders.is_empty() {
