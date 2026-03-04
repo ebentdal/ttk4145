@@ -76,23 +76,34 @@ impl ElevatorFSM {
         pressed
     }
 
-    pub async fn go_to_floor(&self, target_floor: u8) {
+    pub async fn go_to_floor(&self, target_floor: u8) -> u8 {
         let mut inner = self.inner.lock().await;
 
         loop {
             if let Some(floor) = Elevator::floor_sensor(&inner.driver) {
                 inner.prev_floor = floor;
                 Elevator::floor_indicator(&inner.driver, floor);
+
+                // Check if there is a queued order at this floor (intermediate stop)
+                drop(inner);
+                let has_order_here = {
+                    let q = self.queue.lock().await;
+                    q.iter().any(|o| o.floor == floor)
+                };
+                inner = self.inner.lock().await;
+
+                if floor == target_floor || has_order_here {
+                    inner.direction = DIRN_STOP;
+                    Elevator::motor_direction(&inner.driver, DIRN_STOP);
+                    return floor;
+                }
+
                 if floor < target_floor {
                     inner.direction = DIRN_UP;
                     Elevator::motor_direction(&inner.driver, DIRN_UP);
-                } else if floor > target_floor {
+                } else {
                     inner.direction = DIRN_DOWN;
                     Elevator::motor_direction(&inner.driver, DIRN_DOWN);
-                } else {
-                    inner.direction = DIRN_STOP;
-                    Elevator::motor_direction(&inner.driver, DIRN_STOP);
-                    return;
                 }
             }
             drop(inner);
@@ -130,13 +141,49 @@ impl ElevatorFSM {
                 inner.currently_serving = Some(order.clone());
             }
             self.handle_event(Event::NewOrder(order.floor)).await;
-            self.handle_event(Event::ArrivedAtFloor).await;
+
+            // Read where we actually stopped - may differ from order.floor if the
+            // cost function inserted a closer order into the queue mid-journey.
+            let actual_floor = {
+                let inner = self.inner.lock().await;
+                inner.prev_floor
+            };
+
+            let served_order = if actual_floor != order.floor {
+                // Intermediate stop: dequeue the order at this floor from the queue.
+                let intermediate = {
+                    let mut q = self.queue.lock().await;
+                    if let Some(pos) = q.iter().position(|o| o.floor == actual_floor) {
+                        q.remove(pos)
+                    } else {
+                        Order { floor: actual_floor, order_type: ButtonType::HallUp }
+                    }
+                };
+
+                self.handle_event(Event::ArrivedAtFloor).await;
+
+                // Re-insert the original target at the front so it is served next.
+                {
+                    let mut q = self.queue.lock().await;
+                    if !q.contains(&order) {
+                        q.insert(0, order.clone());
+                    }
+                }
+
+                println!("[FSM] << Intermediate: f{} {:?} (original target f{})",
+                    intermediate.floor, intermediate.order_type, order.floor);
+                intermediate
+            } else {
+                self.handle_event(Event::ArrivedAtFloor).await;
+                println!("[FSM] << Done:    f{} {:?}", order.floor, order.order_type);
+                order
+            };
+
             {
                 let mut inner = self.inner.lock().await;
                 inner.currently_serving = None;
             }
-            println!("[FSM] << Done:    f{} {:?}", order.floor, order.order_type);
-            return Some(order);
+            return Some(served_order);
         }
         None
     }

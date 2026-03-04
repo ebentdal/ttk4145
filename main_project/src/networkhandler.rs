@@ -107,12 +107,12 @@ impl Heartbeat {
         let mut heartbeats: std::collections::HashMap<String, HeartbeatMSG> = std::collections::HashMap::new();
         let mut rx = self.tx_broadcast.subscribe();
         
-        let timeout_duration = std::time::Duration::from_millis(500);
+        let timeout_duration = std::time::Duration::from_millis(50);
         let start = std::time::Instant::now();
         
         while start.elapsed() < timeout_duration {
             match tokio::time::timeout(
-                std::time::Duration::from_millis(50),
+                std::time::Duration::from_millis(10),
                 rx.recv()
             ).await {
                 Ok(Ok(msg)) => {
