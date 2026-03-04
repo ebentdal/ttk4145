@@ -24,11 +24,11 @@ impl Heartbeat {
             internal_orders: Vec::new(),
             floor: 0,
             direction: 0,
-            status: Behaviour::idle,
+            status: Behaviour::Idle,
             counter: 0,
             role: Roles::Slave,
             assignments: HashMap::new(),
-            clearedOrder: None,
+            cleared_order: None,
         };
 
         Self {
@@ -159,7 +159,7 @@ impl Heartbeat {
     }
 
     pub fn order_completed(&mut self, order: Order) {
-        self.msg.clearedOrder = Some(order);
+        self.msg.cleared_order = Some(order);
         self.msg.counter += 1;
     }
 }

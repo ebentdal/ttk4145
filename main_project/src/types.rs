@@ -3,7 +3,6 @@ use driver_rust::elevio::elev::Elevator;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::time::{Instant, Duration};
-use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 
@@ -39,9 +38,10 @@ pub enum ButtonType {
 use tokio::sync::Mutex;
 
 pub struct ElevatorInner {
-    pub fsm: Elevator,
+    pub driver: Elevator,
     pub obstruction: bool,
     pub prev_floor: u8,
+    pub direction: u8,
     pub elev_id: String,
     pub state: ElevState,
     pub last_received_msg_counter: i32,
@@ -62,9 +62,12 @@ pub enum Roles {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Behaviour {
-    idle, 
-    moving,
-    doorOpen,
+    #[serde(rename = "idle")]
+    Idle,
+    #[serde(rename = "moving")]
+    Moving,
+    #[serde(rename = "doorOpen")]
+    DoorOpen,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,7 +91,8 @@ pub struct HeartbeatMSG {
     pub counter: i32,
     pub role: Roles,
     pub assignments: std::collections::HashMap<String, Vec<Order>>, 
-    pub clearedOrder: Option<Order>, 
+    #[serde(rename = "clearedOrder")]
+    pub cleared_order: Option<Order>,
 }
 
 pub struct Heartbeat {
@@ -102,7 +106,8 @@ pub struct Heartbeat {
 
 #[derive(Serialize)]
 pub struct Message {
-    pub hallRequests: Vec<[bool; 2]>,
+    #[serde(rename = "hallRequests")]
+    pub hall_requests: Vec<[bool; 2]>,
     pub states: HashMap<String, ElevatorState>,
 }
 
@@ -111,7 +116,8 @@ pub struct ElevatorState {
     pub behaviour: Behaviour,
     pub floor: u8,
     pub direction: Direction,
-    pub cabRequests: Vec<bool>, // blir "cabRequests" utad
+    #[serde(rename = "cabRequests")]
+    pub cab_requests: Vec<bool>,
 }
 
 pub struct RequestAssigner {
