@@ -76,39 +76,37 @@ impl ElevatorFSM {
         pressed
     }
 
-    pub async fn go_to_floor(&self, target_floor: u8) -> u8 {
-        let mut inner = self.inner.lock().await;
-
+    /// Drive toward `initial_target`, but re-read the front of the queue each
+    /// tick and follow it if it has changed (cost function may redirect us).
+    /// Returns the floor actually stopped at.
+    pub async fn go_to_floor(&self, initial_target: u8) -> u8 {
         loop {
-            if let Some(floor) = Elevator::floor_sensor(&inner.driver) {
-                inner.prev_floor = floor;
-                Elevator::floor_indicator(&inner.driver, floor);
+            // Determine current target: queue front if available, else original.
+            let target = {
+                let q = self.queue.lock().await;
+                q.first().map(|o| o.floor).unwrap_or(initial_target)
+            };
 
-                // Check if there is a queued order at this floor (intermediate stop)
-                drop(inner);
-                let has_order_here = {
-                    let q = self.queue.lock().await;
-                    q.iter().any(|o| o.floor == floor)
-                };
-                inner = self.inner.lock().await;
-
-                if floor == target_floor || has_order_here {
-                    inner.direction = DIRN_STOP;
-                    Elevator::motor_direction(&inner.driver, DIRN_STOP);
-                    return floor;
+            let maybe_floor = {
+                let mut inner = self.inner.lock().await;
+                let f = Elevator::floor_sensor(&inner.driver);
+                if let Some(floor) = f {
+                    inner.prev_floor = floor;
+                    Elevator::floor_indicator(&inner.driver, floor);
+                    if floor == target {
+                        inner.direction = DIRN_STOP;
+                        Elevator::motor_direction(&inner.driver, DIRN_STOP);
+                        return floor;
+                    }
+                    let dir = if floor < target { DIRN_UP } else { DIRN_DOWN };
+                    inner.direction = dir;
+                    Elevator::motor_direction(&inner.driver, dir);
                 }
+                f
+            };
 
-                if floor < target_floor {
-                    inner.direction = DIRN_UP;
-                    Elevator::motor_direction(&inner.driver, DIRN_UP);
-                } else {
-                    inner.direction = DIRN_DOWN;
-                    Elevator::motor_direction(&inner.driver, DIRN_DOWN);
-                }
-            }
-            drop(inner);
+            let _ = maybe_floor; // sensor checked above
             sleep(Duration::from_millis(100)).await;
-            inner = self.inner.lock().await;
         }
     }
 
@@ -138,17 +136,14 @@ impl ElevatorFSM {
         if let Some(order) = order {
             {
                 let mut inner = self.inner.lock().await;
+                inner.state = ElevState::WorkingOrder;
                 inner.currently_serving = Some(order.clone());
             }
-            self.handle_event(Event::NewOrder(order.floor)).await;
 
-            // Read where we actually stopped - may differ from order.floor if the
-            // cost function inserted a closer order into the queue mid-journey.
-            let actual_floor = {
-                let inner = self.inner.lock().await;
-                inner.prev_floor
-            };
+            let actual_floor = self.go_to_floor(order.floor).await;
 
+            // If the cost function redirected us to a different floor mid-journey,
+            // serve that order and leave the original target in the queue for next time.
             let served_order = if actual_floor != order.floor {
                 // Intermediate stop: dequeue the order at this floor from the queue.
                 let intermediate = {
@@ -160,27 +155,18 @@ impl ElevatorFSM {
                     }
                 };
 
-                self.handle_event(Event::ArrivedAtFloor).await;
-
-                // Re-insert the original target at the front so it is served next.
-                {
-                    let mut q = self.queue.lock().await;
-                    if !q.contains(&order) {
-                        q.insert(0, order.clone());
-                    }
-                }
-
-                println!("[FSM] << Intermediate: f{} {:?} (original target f{})",
-                    intermediate.floor, intermediate.order_type, order.floor);
+                self.open_door_and_wait().await;
+                println!("[FSM] << Done (redirected): f{} {:?}", intermediate.floor, intermediate.order_type);
                 intermediate
             } else {
-                self.handle_event(Event::ArrivedAtFloor).await;
-                println!("[FSM] << Done:    f{} {:?}", order.floor, order.order_type);
+                self.open_door_and_wait().await;
+                println!("[FSM] << Done: f{} {:?}", order.floor, order.order_type);
                 order
             };
 
             {
                 let mut inner = self.inner.lock().await;
+                inner.state = ElevState::Idle;
                 inner.currently_serving = None;
             }
             return Some(served_order);
