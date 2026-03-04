@@ -15,6 +15,7 @@ impl ElevatorInner {
             Elevator::motor_direction(&mut driver, DIRN_DOWN);
             if let Some(floor) = Elevator::floor_sensor(&driver) {
                 Elevator::motor_direction(&mut driver, DIRN_STOP);
+                Elevator::floor_indicator(&mut driver, floor);
                 return Self {
                     obstruction: Elevator::obstruction(&driver),
                     driver,
@@ -23,6 +24,7 @@ impl ElevatorInner {
                     elev_id: addr.to_string(),
                     state: ElevState::Init,
                     last_received_msg_counter: 0,
+                    currently_serving: None,
                 };
             }
         }
@@ -80,6 +82,7 @@ impl ElevatorFSM {
         loop {
             if let Some(floor) = Elevator::floor_sensor(&inner.driver) {
                 inner.prev_floor = floor;
+                Elevator::floor_indicator(&inner.driver, floor);
                 if floor < target_floor {
                     inner.direction = DIRN_UP;
                     Elevator::motor_direction(&inner.driver, DIRN_UP);
@@ -111,14 +114,28 @@ impl ElevatorFSM {
     pub async fn process_next_order(&self) -> Option<Order> {
         let order = {
             let mut q = self.queue.lock().await;
-            if q.is_empty() { None } else { Some(q.remove(0)) }
+            if q.is_empty() {
+                None
+            } else {
+                let o = q.remove(0);
+                let remaining: Vec<String> = q.iter().map(|x| format!("f{} {:?}", x.floor, x.order_type)).collect();
+                println!("[FSM] >> Serving: f{} {:?} | queue: [{}]", o.floor, o.order_type, remaining.join(", "));
+                Some(o)
+            }
         };
 
         if let Some(order) = order {
-            println!("Processing order: floor {} {:?}", order.floor, order.order_type);
+            {
+                let mut inner = self.inner.lock().await;
+                inner.currently_serving = Some(order.clone());
+            }
             self.handle_event(Event::NewOrder(order.floor)).await;
             self.handle_event(Event::ArrivedAtFloor).await;
-            println!("Order completed: floor {} {:?}", order.floor, order.order_type);
+            {
+                let mut inner = self.inner.lock().await;
+                inner.currently_serving = None;
+            }
+            println!("[FSM] << Done:    f{} {:?}", order.floor, order.order_type);
             return Some(order);
         }
         None

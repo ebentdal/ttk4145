@@ -21,60 +21,58 @@ impl RequestAssigner {
     }
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
-    let json_str = serde_json::to_string_pretty(&self.message).unwrap();
-    println!("[COST] input json:\n{}", json_str);
+        let json_str = serde_json::to_string_pretty(&self.message).unwrap();
+        println!("{:#?}", json_str);
+        let child = Command::new("./hall_request_assigner")
+            .arg("--input")
+            .arg(&json_str)
+            .arg("--includeCab") // behold som du har (da får vi 3 kolonner)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
 
-    let child = Command::new("./hall_request_assigner")
-        .arg("--input")
-        .arg(&json_str)
-        .arg("--includeCab") // behold som du har (da får vi 3 kolonner)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+        let output = child.wait_with_output().await.unwrap();
 
-    let output = child.wait_with_output().await.unwrap();
-
-    if !output.status.success() {
-        eprintln!(
-            "hall_request_assigner feilet. stderr:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        return HashMap::new();
-    }
-
-    let raw: HashMap<String, Vec<Vec<bool>>> = serde_json::from_slice(&output.stdout).unwrap();
-    println!("[COST] raw cost output: {:?}\n", raw);
-
-    let mut assignments: HashMap<String, Vec<Order>> = HashMap::new();
-
-    for (id, per_floor) in raw {
-        let mut orders: Vec<Order> = Vec::new();
-
-        for (floor, cols) in per_floor.iter().enumerate() {
-            if cols.get(0).copied().unwrap_or(false) {
-                orders.push(Order {
-                    floor: floor as u8,
-                    order_type: ButtonType::HallUp,
-                });
-            }
-            if cols.get(1).copied().unwrap_or(false) {
-                orders.push(Order {
-                    floor: floor as u8,
-                    order_type: ButtonType::HallDown,
-                });
-            }
-            if cols.get(2).copied().unwrap_or(false) {
-                orders.push(Order {
-                    floor: floor as u8,
-                    order_type: ButtonType::CabCall,
-                });
-            }
+        if !output.status.success() {
+            println!(
+                "hall_request_assigner feilet. stderr:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return HashMap::new();
         }
-        assignments.insert(id, orders);
-    }
-    assignments
+
+        let raw: HashMap<String, Vec<Vec<bool>>> = serde_json::from_slice(&output.stdout).unwrap();
+
+        let mut assignments: HashMap<String, Vec<Order>> = HashMap::new();
+
+        for (id, per_floor) in raw {
+            let mut orders: Vec<Order> = Vec::new();
+
+            for (floor, cols) in per_floor.iter().enumerate() {
+                if cols.get(0).copied().unwrap_or(false) {
+                    orders.push(Order {
+                        floor: floor as u8,
+                        order_type: ButtonType::HallUp,
+                    });
+                }
+                if cols.get(1).copied().unwrap_or(false) {
+                    orders.push(Order {
+                        floor: floor as u8,
+                        order_type: ButtonType::HallDown,
+                    });
+                }
+                if cols.get(2).copied().unwrap_or(false) {
+                    orders.push(Order {
+                        floor: floor as u8,
+                        order_type: ButtonType::CabCall,
+                    });
+                }
+            }
+            assignments.insert(id, orders);
+        }
+        assignments
     }
 
 
@@ -138,7 +136,6 @@ impl RequestAssigner {
         fsm: &Arc<ElevatorFSM>,
         orders: &[Order],
         counter: i32,
-        allow_duplicates: bool,
         prefix: Option<&str>,
     ) {
         {
@@ -149,9 +146,17 @@ impl RequestAssigner {
             inner.last_received_msg_counter = counter;
         }
 
+        let currently_serving = {
+            let inner = fsm.inner.lock().await;
+            inner.currently_serving.clone()
+        };
+
+        // Replace the queue with the new assignment order from the cost function,
+        // skipping only the order currently being executed.
         let mut q = fsm.queue.lock().await;
+        q.clear();
         for order in orders {
-            if allow_duplicates || !q.contains(order) {
+            if currently_serving.as_ref() != Some(order) {
                 if let Some(p) = prefix {
                     println!("{} enqueue order: f{} {:?}", p, order.floor, order.order_type);
                 }
@@ -230,11 +235,10 @@ impl RequestAssigner {
         self.build_message_from_gossip(gossip, &network.msg);
 
         let assignments = self.cost_function().await;
-        println!("[MASTER] computed assignments: {:?}", assignments);
+        println!("{:#?}",assignments);
 
         let self_id = network.id().to_string();
         if !assignments.contains_key(&self_id) && !network.msg.external_orders.is_empty() {
-            println!("[MASTER] fallback: enqueuing {} local external orders", network.msg.external_orders.len());
             let mut q = fsm.queue.lock().await;
             for order in &network.msg.external_orders {
                 if !q.contains(order) {
@@ -247,20 +251,11 @@ impl RequestAssigner {
             self.last_published_assignments = assignments.clone();
             network.msg.assignments = assignments.clone();
             network.msg.counter += 1;
-
-            println!("\n--- ASSIGNMENTS (published) ---");
-            for (id, orders) in &assignments {
-                print!("{}: ", id);
-                for order in orders {
-                    print!("[f{} {:?}] ", order.floor, order.order_type);
-                }
-                println!();
-            }
         }
 
         let self_id = network.id().to_string();
         if let Some(my_orders) = network.msg.assignments.get(&self_id) {
-            self.enqueue_orders(&fsm, my_orders, network.msg.counter, false, Some("(MASTER)")).await;
+            self.enqueue_orders(&fsm, my_orders, network.msg.counter, None).await;
         }
         
         // Update button lights to match all orders (external + internal)
@@ -269,16 +264,13 @@ impl RequestAssigner {
 
     pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: Arc<ElevatorFSM>) {
         if let Some(master_heartbeat) = gossip.iter().find(|heartbeat| matches!(heartbeat.role, Roles::Master)) {
-            println!("[SLAVE] received master heartbeat with assignments {:?} (counter {})", master_heartbeat.assignments, master_heartbeat.counter);
             let my_id = network.id().to_string();
             if let Some(my_orders) = master_heartbeat.assignments.get(&my_id) {
-                self.enqueue_orders(&fsm, my_orders, master_heartbeat.counter, false, Some("(SLAVE)")).await;
+                self.enqueue_orders(&fsm, my_orders, master_heartbeat.counter, None).await;
             }
-            
+
             // Hall lights from master (shared), cab lights from own orders only
             fsm.set_button_light(&master_heartbeat.external_orders, &network.msg.internal_orders).await;
-        } else {
-            println!("[SLAVE] no master heartbeat found in gossip");
         }
     }
 }

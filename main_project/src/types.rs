@@ -45,6 +45,7 @@ pub struct ElevatorInner {
     pub elev_id: String,
     pub state: ElevState,
     pub last_received_msg_counter: i32,
+    pub currently_serving: Option<Order>,
 }
 
 pub struct ElevatorFSM {

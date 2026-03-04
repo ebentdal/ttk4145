@@ -159,6 +159,8 @@ impl Heartbeat {
     }
 
     pub fn order_completed(&mut self, order: Order) {
+        self.msg.external_orders.retain(|o| o != &order);
+        self.msg.internal_orders.retain(|o| o != &order);
         self.msg.cleared_order = Some(order);
         self.msg.counter += 1;
     }
