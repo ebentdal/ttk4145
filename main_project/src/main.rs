@@ -100,6 +100,14 @@ async fn main() {
 
         request_assigner.elect_master(gossip.clone(), &mut network).await;
 
+        // Clear orders that other elevators have completed
+        for heartbeat in &gossip {
+            if let Some(cleared) = &heartbeat.cleared_order {
+                network.msg.external_orders.retain(|o| o != cleared);
+                network.msg.internal_orders.retain(|o| o != cleared);
+            }
+        }
+
         match request_assigner.role {
             Roles::Master => request_assigner.master(&gossip, &mut network, fsm.clone()).await,
             Roles::Slave  => request_assigner.slave(&gossip, &network, fsm.clone()).await,
