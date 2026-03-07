@@ -98,7 +98,6 @@ pub struct HeartbeatMSG {
 
 pub struct Heartbeat {
     pub msg: HeartbeatMSG,
-    pub rx: tokio::sync::broadcast::Receiver<HeartbeatMSG>,
     pub tx_broadcast: tokio::sync::broadcast::Sender<HeartbeatMSG>,
     pub tx_udp: crossbeam_channel::Sender<HeartbeatMSG>,
 }

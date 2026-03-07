@@ -11,13 +11,15 @@ use std::sync::Arc;
 
 impl RequestAssigner {
 
-    pub async fn new(id: String, role: Roles, message: Message) -> Self {
-        Self { message, 
-            id, 
-            role, 
-            last_published_assignments: HashMap::new(), 
-            last_seen: HashMap::new(), 
-            peer_ttl: tokio::time::Duration::from_secs(2),} //2 second timeout for master election
+    pub fn new(id: String, role: Roles, message: Message) -> Self {
+        Self {
+            message,
+            id,
+            role,
+            last_published_assignments: HashMap::new(),
+            last_seen: HashMap::new(),
+            peer_ttl: tokio::time::Duration::from_secs(2),
+        }
     }
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
@@ -86,10 +88,7 @@ impl RequestAssigner {
         self.message.states.clear();
         self.message.hall_requests = vec![[false, false]; num_floors];
 
-        self.insert_state_from_heartbeat(own_heartbeat, num_floors);
-        self.merge_external_orders(own_heartbeat, num_floors);
-
-        for heartbeat in gossip {
+        for heartbeat in std::iter::once(own_heartbeat).chain(gossip) {
             self.insert_state_from_heartbeat(heartbeat, num_floors);
             self.merge_external_orders(heartbeat, num_floors);
         }
@@ -136,7 +135,6 @@ impl RequestAssigner {
         fsm: &Arc<ElevatorFSM>,
         orders: &[Order],
         counter: i32,
-        prefix: Option<&str>,
     ) {
         {
             let mut inner = fsm.inner.lock().await;
@@ -151,15 +149,12 @@ impl RequestAssigner {
             inner.currently_serving.clone()
         };
 
-        // Replace the queue with the new assignment order from the cost function,
+        // Replace the queue with the new assignment from the cost function,
         // skipping only the order currently being executed.
         let mut q = fsm.queue.lock().await;
         q.clear();
         for order in orders {
             if currently_serving.as_ref() != Some(order) {
-                if let Some(p) = prefix {
-                    println!("{} enqueue order: f{} {:?}", p, order.floor, order.order_type);
-                }
                 q.push(order.clone());
             }
         }
@@ -181,10 +176,7 @@ impl RequestAssigner {
         let ttl = self.peer_ttl;
         self.last_seen.retain(|_, t| now.duration_since(*t) <= ttl);
 
-        let mut candidates: Vec<String> = self.last_seen.keys().cloned().collect();
-        if !candidates.iter().any(|id| id == &self.id) {
-            candidates.push(self.id.clone());
-        }
+        let candidates: Vec<String> = self.last_seen.keys().cloned().collect();
 
         let elected = candidates
             .iter()
@@ -253,9 +245,8 @@ impl RequestAssigner {
             network.msg.counter += 1;
         }
 
-        let self_id = network.id().to_string();
         if let Some(my_orders) = network.msg.assignments.get(&self_id) {
-            self.enqueue_orders(&fsm, my_orders, network.msg.counter, None).await;
+            self.enqueue_orders(&fsm, my_orders, network.msg.counter).await;
         }
         
         // Update button lights to match all orders (external + internal)
@@ -266,7 +257,7 @@ impl RequestAssigner {
         if let Some(master_heartbeat) = gossip.iter().find(|heartbeat| matches!(heartbeat.role, Roles::Master)) {
             let my_id = network.id().to_string();
             if let Some(my_orders) = master_heartbeat.assignments.get(&my_id) {
-                self.enqueue_orders(&fsm, my_orders, master_heartbeat.counter, None).await;
+                self.enqueue_orders(&fsm, my_orders, master_heartbeat.counter).await;
             }
 
             // Hall lights from master (shared), cab lights from own orders only

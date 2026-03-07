@@ -17,7 +17,7 @@ impl Heartbeat {
             .ip();
         println!("local ip {}", local_ip);
 
-        let (tx_broadcast, rx, tx_udp) = Self::start_channels().await;
+        let (tx_broadcast, tx_udp) = Self::start_channels().await;
         let heartbeatmsg = HeartbeatMSG {
             id: local_ip.to_string(),
             external_orders: Vec::new(),
@@ -33,18 +33,16 @@ impl Heartbeat {
 
         Self {
             msg: heartbeatmsg,
-            rx,
             tx_broadcast,
             tx_udp,
         }
     }
 
 
-    pub async fn start_channels() -> (broadcast::Sender<HeartbeatMSG>, broadcast::Receiver<HeartbeatMSG>, cbc::Sender<HeartbeatMSG>) {
+    pub async fn start_channels() -> (broadcast::Sender<HeartbeatMSG>, cbc::Sender<HeartbeatMSG>) {
         let (crossbeam_tx, crossbeam_tx_rx) = cbc::unbounded::<HeartbeatMSG>();
         let (crossbeam_rx_tx, crossbeam_rx) = cbc::unbounded::<HeartbeatMSG>();
 
-        let rx_crossbeam_rx = crossbeam_rx.clone();
         std::thread::spawn(move || {
             println!("[UDP] Starting broadcast RX on port {}", MSG_PORT);
             match udpnet::bcast::rx(MSG_PORT, crossbeam_rx_tx) {
@@ -63,15 +61,13 @@ impl Heartbeat {
             }
         });
 
-        let (bcast_tx, bcast_rx) = broadcast::channel::<HeartbeatMSG>(512);
-        
+        let (bcast_tx, _) = broadcast::channel::<HeartbeatMSG>(512);
+
         let bcast_tx_relay = bcast_tx.clone();
         std::thread::spawn(move || {
             loop {
-                match rx_crossbeam_rx.recv() {
-                    Ok(msg) => {
-                        let _ = bcast_tx_relay.send(msg);
-                    }
+                match crossbeam_rx.recv() {
+                    Ok(msg) => { let _ = bcast_tx_relay.send(msg); }
                     Err(_) => break,
                 }
             }
@@ -80,26 +76,14 @@ impl Heartbeat {
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         println!("Network channels initialized");
 
-        (bcast_tx, bcast_rx, crossbeam_tx)
+        (bcast_tx, crossbeam_tx)
     }
 
 
-    pub async fn network_controller(&mut self) -> Option<HeartbeatMSG> {
+    pub async fn network_controller(&mut self) {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
         self.tx_udp.send(self.msg.clone()).unwrap();
-
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            self.rx.recv()
-        ).await {
-            Ok(Ok(msg)) if msg.id != self.msg.id => {
-                Some(msg)
-            },
-            _ => None,
-        }
     }
 
 
@@ -138,24 +122,8 @@ impl Heartbeat {
         heartbeats.into_values().collect()
     }
 
-    pub fn floor(&self) -> u8 {
-        self.msg.floor
-    }
-
-    pub fn direction(&self) -> u8 {
-        self.msg.direction
-    }
-
-    pub fn status(&self) -> &Behaviour {
-        &self.msg.status
-    }
-
     pub fn id(&self) -> &str {
         &self.msg.id
-    }
-
-    pub fn internal_orders(&self) -> &Vec<Order> {
-        &self.msg.internal_orders
     }
 
     pub fn order_completed(&mut self, order: Order) {
