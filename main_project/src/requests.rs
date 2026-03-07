@@ -325,10 +325,11 @@ impl RequestAssigner {
             self.peer_states.len(),
             self.message.hall_requests);
         
-        // Only run cost function if there are new orders to assign
-        let has_new_orders = self.message.hall_requests.iter().any(|floor| floor[0] || floor[1]);
+        // Only run cost function if there are new HALL orders to assign
+        // Cab orders are handled directly (each elevator enqueues its own cabs)
+        let has_new_hall_orders = self.message.hall_requests.iter().any(|floor| floor[0] || floor[1]);
         
-        let new_assignments = if has_new_orders {
+        let new_assignments = if has_new_hall_orders {
             self.cost_function().await
         } else {
             HashMap::new()
@@ -357,9 +358,15 @@ impl RequestAssigner {
         let my_orders = network.msg.assignments.get(&self_id);
         println!("[MASTER {}] My assigned orders: {:?}", self_id, my_orders);
         
-        if let Some(orders) = my_orders {
-            self.enqueue_orders(&fsm, orders).await;
+        // Combine assigned hall orders with local cab orders
+        let mut all_my_orders: Vec<Order> = my_orders.cloned().unwrap_or_default();
+        for cab_order in &network.msg.internal_orders {
+            if !all_my_orders.contains(cab_order) {
+                all_my_orders.push(cab_order.clone());
+            }
         }
+        
+        self.enqueue_orders(&fsm, &all_my_orders).await;
         
         // Update button lights to match all orders (external + internal)
         fsm.set_button_light(&network.msg.external_orders, &network.msg.internal_orders).await;
@@ -371,13 +378,21 @@ impl RequestAssigner {
             let my_orders = master_heartbeat.assignments.get(&my_id);
             println!("[SLAVE {}] My assigned orders from master: {:?}", my_id, my_orders);
             
-            if let Some(orders) = my_orders {
-                self.enqueue_orders(&fsm, orders).await;
+            // Combine assigned hall orders with local cab orders
+            let mut all_my_orders: Vec<Order> = my_orders.cloned().unwrap_or_default();
+            for cab_order in &network.msg.internal_orders {
+                if !all_my_orders.contains(cab_order) {
+                    all_my_orders.push(cab_order.clone());
+                }
             }
+            
+            self.enqueue_orders(&fsm, &all_my_orders).await;
 
             // Hall lights from master (shared), cab lights from own orders only
             fsm.set_button_light(&master_heartbeat.external_orders, &network.msg.internal_orders).await;
         } else {
+            // Even if no master, still handle local cab orders
+            self.enqueue_orders(&fsm, &network.msg.internal_orders).await;
             println!("[SLAVE] No master found in gossip!");
         }
     }
