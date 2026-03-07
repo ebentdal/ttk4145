@@ -25,7 +25,6 @@ impl RequestAssigner {
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
         let json_str = serde_json::to_string_pretty(&self.message).unwrap();
-        println!("{:#?}", json_str);
         let child = Command::new("./hall_request_assigner")
             .arg("--input")
             .arg(&json_str)
@@ -230,7 +229,6 @@ impl RequestAssigner {
         println!("[MASTER] states: {:?}", self.message.states.keys().collect::<Vec<_>>());
         
         let assignments = self.cost_function().await;
-        println!("{:#?}",assignments);
 
         let self_id = network.id().to_string();
 
