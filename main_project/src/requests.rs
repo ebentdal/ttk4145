@@ -197,6 +197,21 @@ impl RequestAssigner {
         }
 
         let ttl = self.peer_ttl;
+        
+        // Find peers that timed out BEFORE removing them
+        let timed_out_peers: Vec<String> = self.last_seen
+            .iter()
+            .filter(|(_, t)| now.duration_since(**t) > ttl)
+            .map(|(id, _)| id.clone())
+            .collect();
+        
+        // Clear assignments from timed-out peers so orders can be reassigned
+        for peer_id in &timed_out_peers {
+            if self.last_published_assignments.remove(peer_id).is_some() {
+                println!("[MASTER] Peer {} timed out - clearing their assignments for reassignment", peer_id);
+            }
+        }
+        
         self.last_seen.retain(|_, t| now.duration_since(*t) <= ttl);
         // Remove stale peer states
         self.peer_states.retain(|id, _| self.last_seen.contains_key(id));
@@ -248,6 +263,10 @@ impl RequestAssigner {
                 for (_id, orders) in network.msg.assignments.iter_mut() {
                     orders.retain(|o| o != cleared);
                 }
+                // Clear from last_published_assignments too
+                for (_id, orders) in self.last_published_assignments.iter_mut() {
+                    orders.retain(|o| o != cleared);
+                }
             }
         }
         
@@ -263,6 +282,10 @@ impl RequestAssigner {
             for (_id, orders) in network.msg.assignments.iter_mut() {
                 orders.retain(|o| o != cleared);
             }
+            // Clear from last_published_assignments too
+            for (_id, orders) in self.last_published_assignments.iter_mut() {
+                orders.retain(|o| o != cleared);
+            }
         }
         
         // Now aggregate external orders from all peers (for consistent button lights)
@@ -275,6 +298,26 @@ impl RequestAssigner {
         }
 
         self.build_message_from_gossip(gossip, &network.msg);
+        
+        // Collect orders that are already assigned to someone
+        let already_assigned: Vec<Order> = self.last_published_assignments
+            .values()
+            .flatten()
+            .cloned()
+            .collect();
+        
+        // Remove already-assigned orders from hall_requests before calling cost function
+        // This prevents the cost function from reassigning orders mid-execution
+        for order in &already_assigned {
+            let floor = order.floor as usize;
+            if floor < self.message.hall_requests.len() {
+                match order.order_type {
+                    ButtonType::HallUp => self.message.hall_requests[floor][0] = false,
+                    ButtonType::HallDown => self.message.hall_requests[floor][1] = false,
+                    _ => {}
+                }
+            }
+        }
 
         // Debug: show what we're sending to cost function
         println!("[MASTER] gossip: {} | peers: {} | hall_requests: {:?}", 
@@ -282,13 +325,31 @@ impl RequestAssigner {
             self.peer_states.len(),
             self.message.hall_requests);
         
-        let assignments = self.cost_function().await;
+        // Only run cost function if there are new orders to assign
+        let has_new_orders = self.message.hall_requests.iter().any(|floor| floor[0] || floor[1]);
+        
+        let new_assignments = if has_new_orders {
+            self.cost_function().await
+        } else {
+            HashMap::new()
+        };
+        
+        // Merge new assignments with existing ones
+        let mut merged_assignments = self.last_published_assignments.clone();
+        for (id, new_orders) in new_assignments {
+            let entry = merged_assignments.entry(id).or_insert_with(Vec::new);
+            for order in new_orders {
+                if !entry.contains(&order) {
+                    entry.push(order);
+                }
+            }
+        }
 
         let self_id = network.id().to_string();
 
-        if assignments != self.last_published_assignments {
-            self.last_published_assignments = assignments.clone();
-            network.msg.assignments = assignments.clone();
+        if merged_assignments != self.last_published_assignments {
+            self.last_published_assignments = merged_assignments.clone();
+            network.msg.assignments = merged_assignments.clone();
             network.msg.counter += 1;
         }
 
