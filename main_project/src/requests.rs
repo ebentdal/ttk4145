@@ -224,20 +224,19 @@ impl RequestAssigner {
         network: &mut Heartbeat,
         fsm: Arc<ElevatorFSM>,
     ) {
-        // Aggregate external orders from all peers (for consistent button lights)
-        for heartbeat in gossip {
-            for order in &heartbeat.external_orders {
-                if !network.msg.external_orders.contains(order) {
-                    network.msg.external_orders.push(order.clone());
-                }
-            }
-        }
-        
-        // Remove orders marked as completed in heartbeats
+        // First: Remove orders marked as completed in heartbeats (BEFORE aggregating!)
         for heartbeat in gossip {
             if let Some(cleared) = &heartbeat.cleared_order {
                 network.msg.external_orders.retain(|order| order != cleared);
                 network.msg.internal_orders.retain(|order| order != cleared);
+                // Also clear from cached peer_states
+                for (_, cached_hb) in self.peer_states.iter_mut() {
+                    cached_hb.external_orders.retain(|o| o != cleared);
+                }
+                // Clear from assignments too
+                for (_id, orders) in network.msg.assignments.iter_mut() {
+                    orders.retain(|o| o != cleared);
+                }
             }
         }
         
@@ -245,15 +244,32 @@ impl RequestAssigner {
         if let Some(cleared) = &network.msg.cleared_order {
             network.msg.external_orders.retain(|order| order != cleared);
             network.msg.internal_orders.retain(|order| order != cleared);
+            // Clear from cached peer_states
+            for (_, cached_hb) in self.peer_states.iter_mut() {
+                cached_hb.external_orders.retain(|o| o != cleared);
+            }
+            // Clear from assignments
+            for (_id, orders) in network.msg.assignments.iter_mut() {
+                orders.retain(|o| o != cleared);
+            }
+        }
+        
+        // Now aggregate external orders from all peers (for consistent button lights)
+        for heartbeat in gossip {
+            for order in &heartbeat.external_orders {
+                if !network.msg.external_orders.contains(order) {
+                    network.msg.external_orders.push(order.clone());
+                }
+            }
         }
 
         self.build_message_from_gossip(gossip, &network.msg);
 
         // Debug: show what we're sending to cost function
-        println!("[MASTER] gossip: {} | cached peers: {} | states: {:?}", 
+        println!("[MASTER] gossip: {} | peers: {} | hall_requests: {:?}", 
             gossip.len(), 
             self.peer_states.len(),
-            self.message.states.keys().collect::<Vec<_>>());
+            self.message.hall_requests);
         
         let assignments = self.cost_function().await;
 
@@ -295,11 +311,15 @@ impl RequestAssigner {
     }
 
     /// Called by both master and slave to clear orders that any peer has completed
-    pub fn clear_completed_orders_from_gossip(&self, gossip: &[HeartbeatMSG], network: &mut Heartbeat) {
+    pub fn clear_completed_orders_from_gossip(&mut self, gossip: &[HeartbeatMSG], network: &mut Heartbeat) {
         for heartbeat in gossip {
             if let Some(cleared) = &heartbeat.cleared_order {
                 network.msg.external_orders.retain(|order| order != cleared);
                 network.msg.internal_orders.retain(|order| order != cleared);
+                // Also clear from cached peer_states
+                for (_, cached_hb) in self.peer_states.iter_mut() {
+                    cached_hb.external_orders.retain(|o| o != cleared);
+                }
             }
         }
     }
