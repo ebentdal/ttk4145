@@ -152,6 +152,11 @@ impl RequestAssigner {
         fsm: &Arc<ElevatorFSM>,
         orders: &[Order],
     ) {
+        // Log who is trying to enqueue what
+        println!("[ENQUEUE {}] Received orders to enqueue: {:?}", 
+            self.id,
+            orders.iter().map(|o| format!("f{} {:?}", o.floor, o.order_type)).collect::<Vec<_>>());
+        
         let currently_serving = {
             let inner = fsm.inner.lock().await;
             inner.currently_serving.clone()
@@ -167,7 +172,8 @@ impl RequestAssigner {
         // Only update if queue content actually changed
         let mut q = fsm.queue.lock().await;
         if *q != new_queue {
-            println!("[ENQUEUE] Updating queue: {:?} -> {:?}", 
+            println!("[ENQUEUE {}] Updating queue: {:?} -> {:?}", 
+                self.id,
                 q.iter().map(|o| format!("f{}", o.floor)).collect::<Vec<_>>(),
                 new_queue.iter().map(|o| format!("f{}", o.floor)).collect::<Vec<_>>());
             *q = new_queue;
