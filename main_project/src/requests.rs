@@ -3,6 +3,7 @@ use crate::types::{ElevatorFSM, Order};
 use tokio::process::Command;
 use std::process::Stdio;
 use crate::types::*;
+use crate::config;
 use std::net::IpAddr;
 use std::str::FromStr;
 use tokio::time::Instant;
@@ -18,7 +19,7 @@ impl RequestAssigner {
             role,
             last_published_assignments: HashMap::new(),
             last_seen: HashMap::new(),
-            peer_ttl: tokio::time::Duration::from_secs(2),
+            peer_ttl: config::MASTER_ELECTION_TIMEOUT,
         }
     }
 
