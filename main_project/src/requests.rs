@@ -145,20 +145,7 @@ impl RequestAssigner {
             inner.last_received_msg_counter = counter;
         }
 
-        let currently_serving = {
-            let inner = fsm.inner.lock().await;
-            inner.currently_serving.clone()
-        };
-
-        // Replace the queue with the new assignment from the cost function,
-        // skipping only the order currently being executed.
-        let mut q = fsm.queue.lock().await;
-        q.clear();
-        for order in orders {
-            if currently_serving.as_ref() != Some(order) {
-                q.push(order.clone());
-            }
-        }
+        fsm.replace_queue(orders).await;
     }   
 
     pub async fn elect_master(
