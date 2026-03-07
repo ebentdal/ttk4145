@@ -241,12 +241,21 @@ impl RequestAssigner {
         network: &mut Heartbeat,
         fsm: Arc<ElevatorFSM>,
     ) {
+        let my_id = network.msg.id.clone();
+        
         // First: Remove orders marked as completed in heartbeats (BEFORE aggregating!)
         for heartbeat in gossip {
             if let Some(cleared) = &heartbeat.cleared_order {
+                // External (hall) orders: clear from everyone
                 network.msg.external_orders.retain(|order| order != cleared);
-                network.msg.internal_orders.retain(|order| order != cleared);
-                // Also clear from cached peer_states
+                
+                // Internal (cab) orders: only clear if it's MY elevator's cleared order
+                // Other elevators' cabs shouldn't affect my cabs
+                if heartbeat.id == my_id {
+                    network.msg.internal_orders.retain(|order| order != cleared);
+                }
+                
+                // Clear from cached peer_states (only external orders)
                 for (_, cached_hb) in self.peer_states.iter_mut() {
                     cached_hb.external_orders.retain(|o| o != cleared);
                 }
@@ -390,11 +399,20 @@ impl RequestAssigner {
 
     /// Called by both master and slave to clear orders that any peer has completed
     pub fn clear_completed_orders_from_gossip(&mut self, gossip: &[HeartbeatMSG], network: &mut Heartbeat) {
+        let my_id = &network.msg.id;
+        
         for heartbeat in gossip {
             if let Some(cleared) = &heartbeat.cleared_order {
+                // External (hall) orders: clear from everyone
                 network.msg.external_orders.retain(|order| order != cleared);
-                network.msg.internal_orders.retain(|order| order != cleared);
-                // Also clear from cached peer_states
+                
+                // Internal (cab) orders: only clear if it's MY cleared order
+                // Cabs are private - other elevators shouldn't clear my cabs
+                if &heartbeat.id == my_id {
+                    network.msg.internal_orders.retain(|order| order != cleared);
+                }
+                
+                // Clear from cached peer_states (only external orders)
                 for (_, cached_hb) in self.peer_states.iter_mut() {
                     cached_hb.external_orders.retain(|o| o != cleared);
                 }
