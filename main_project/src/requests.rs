@@ -152,31 +152,22 @@ impl RequestAssigner {
         fsm: &Arc<ElevatorFSM>,
         orders: &[Order],
     ) {
-        // Log who is trying to enqueue what
-        println!("[ENQUEUE {}] Received orders to enqueue: {:?}", 
-            self.id,
-            orders.iter().map(|o| format!("f{} {:?}", o.floor, o.order_type)).collect::<Vec<_>>());
-        
-        let currently_serving = {
+        let (currently_serving, current_floor) = {
             let inner = fsm.inner.lock().await;
-            inner.currently_serving.clone()
+            (inner.currently_serving.clone(), inner.prev_floor)
         };
 
-        // Build the new queue (excluding currently serving order)
-        let new_queue: Vec<Order> = orders
+        // Build queue excluding currently serving, sorted by distance (closest first)
+        let mut new_queue: Vec<Order> = orders
             .iter()
             .filter(|o| currently_serving.as_ref() != Some(*o))
             .cloned()
             .collect();
+        
+        new_queue.sort_by_key(|o| (o.floor as i16 - current_floor as i16).abs());
 
-        // Only update if queue content actually changed
         let mut q = fsm.queue.lock().await;
         if *q != new_queue {
-            println!("!!!!!!! [ENQUEUE {}] QUEUE CHANGED: {:?} -> {:?} (role: {:?}) !!!!!!!", 
-                self.id,
-                q.iter().map(|o| format!("f{}", o.floor)).collect::<Vec<_>>(),
-                new_queue.iter().map(|o| format!("f{}", o.floor)).collect::<Vec<_>>(),
-                self.role);
             *q = new_queue;
         }
     }   
