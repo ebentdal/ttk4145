@@ -61,7 +61,7 @@ impl ElevatorInner {
                 DIRN_DOWN => o.order_type != ButtonType::HallUp,
                 _ => true,
             }
-        }).or_else(|| queue.iter().position(|o| o.floor == self.prev_floor))?;
+        })?;
 
         let served = queue.remove(pos);
         self.currently_serving = None;
@@ -192,7 +192,14 @@ impl ElevatorFSM {
             }
 
             // At target — serve order
-            let served = inner.serve_order(&mut queue)?;
+            let Some(served) = inner.serve_order(&mut queue) else {
+                // No direction-compatible order at this floor (e.g. only HallDown
+                // while going up). Reset to DIRN_STOP so the next iteration uses
+                // the DIRN_STOP branch in get_next_order, which matches any order
+                // type and will serve the order on the next pass.
+                inner.direction = DIRN_STOP;
+                continue;
+            };
 
             println!(
                 "[FSM] Served f{} {:?} | queue: {:?}",

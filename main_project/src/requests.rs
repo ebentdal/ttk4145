@@ -218,7 +218,13 @@ impl RequestAssigner {
         println!("{:#?}",assignments);
 
         let self_id = network.id().to_string();
-        if !assignments.contains_key(&self_id) && !network.msg.external_orders.is_empty() {
+        // Only fall back if the cost function failed entirely (returned no
+        // assignments for anyone while there are pending orders). If the
+        // cost function simply assigned nothing to us (valid when the slave
+        // is the better choice), we must NOT steal those orders — doing so
+        // causes both master and slave to serve the same hall calls.
+        if assignments.is_empty() && !network.msg.external_orders.is_empty() {
+            println!("[MASTER] cost function returned no assignments, taking orders as fallback");
             let mut q = fsm.queue.lock().await;
             for order in &network.msg.external_orders {
                 if !q.contains(order) {

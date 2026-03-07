@@ -67,12 +67,8 @@ async fn main() {
         network.msg.direction = direction;
         network.msg.status = status;
 
-        network.network_controller().await;
-
-        let gossip = network.collect_gossip_heartbeats().await;
-
-        request_assigner.elect_master(gossip.clone(), &mut network).await;
-
+        // Process button presses and completed orders before the network
+        // sleep so lights turn on within the current cycle, not the next.
         while let Ok(orders) = button_rx.try_recv() {
             for order in orders {
                 let target = match order.order_type {
@@ -91,6 +87,18 @@ async fn main() {
             network.order_completed(order);
             clear_completed_after = Some(tokio::time::Instant::now() + Duration::from_secs(1));
         }
+
+        // Run network send and gossip collection concurrently (~50 ms total
+        // instead of ~70 ms sequentially).
+        let gossip = {
+            let (_, g) = tokio::join!(
+                network.network_controller(),
+                network.collect_gossip_heartbeats()
+            );
+            g
+        };
+
+        request_assigner.elect_master(gossip.clone(), &mut network).await;
 
         match request_assigner.role {
             Roles::Master => request_assigner.master(&gossip, &mut network, fsm.clone()).await,
