@@ -129,7 +129,7 @@ impl ElevatorFSM {
                 let o = q.remove(0);
                 let remaining: Vec<String> = q.iter().map(|x| format!("f{} {:?}", x.floor, x.order_type)).collect();
                 let inner = self.inner.lock().await;
-                println!("[FSM {}] >> EXECUTING: f{} {:?} | remaining queue: [{}]", inner.elev_id, o.floor, o.order_type, remaining.join(", "));
+                println!("!!!!!!! [FSM {}] >> EXECUTING: f{} {:?} | remaining queue: [{}] !!!!!!!", inner.elev_id, o.floor, o.order_type, remaining.join(", "));
                 drop(inner);
                 Some(o)
             }

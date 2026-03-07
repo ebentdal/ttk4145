@@ -172,10 +172,11 @@ impl RequestAssigner {
         // Only update if queue content actually changed
         let mut q = fsm.queue.lock().await;
         if *q != new_queue {
-            println!("[ENQUEUE {}] Updating queue: {:?} -> {:?}", 
+            println!("!!!!!!! [ENQUEUE {}] QUEUE CHANGED: {:?} -> {:?} (role: {:?}) !!!!!!!", 
                 self.id,
                 q.iter().map(|o| format!("f{}", o.floor)).collect::<Vec<_>>(),
-                new_queue.iter().map(|o| format!("f{}", o.floor)).collect::<Vec<_>>());
+                new_queue.iter().map(|o| format!("f{}", o.floor)).collect::<Vec<_>>(),
+                self.role);
             *q = new_queue;
         }
     }   
