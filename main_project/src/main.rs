@@ -67,8 +67,15 @@ async fn main() {
         network.msg.direction = direction;
         network.msg.status = status;
 
-        // Process button presses and completed orders before the network
-        // sleep so lights turn on within the current cycle, not the next.
+        network.network_controller().await;
+
+        let gossip = network.collect_gossip_heartbeats().await;
+
+        // Clear orders that any peer has completed (works for both master and slave)
+        request_assigner.clear_completed_orders_from_gossip(&gossip, &mut network);
+
+        request_assigner.elect_master(gossip.clone(), &mut network).await;
+
         while let Ok(orders) = button_rx.try_recv() {
             for order in orders {
                 let target = match order.order_type {
@@ -86,26 +93,6 @@ async fn main() {
             println!("[MAIN] Order completed: f{} {:?}", order.floor, order.order_type);
             network.order_completed(order);
             clear_completed_after = Some(tokio::time::Instant::now() + Duration::from_secs(1));
-        }
-
-        // Run network send and gossip collection concurrently (~50 ms total
-        // instead of ~70 ms sequentially).
-        let gossip = {
-            let (_, g) = tokio::join!(
-                network.network_controller(),
-                network.collect_gossip_heartbeats()
-            );
-            g
-        };
-
-        request_assigner.elect_master(gossip.clone(), &mut network).await;
-
-        // Clear orders that other elevators have completed
-        for heartbeat in &gossip {
-            if let Some(cleared) = &heartbeat.cleared_order {
-                network.msg.external_orders.retain(|o| o != cleared);
-                network.msg.internal_orders.retain(|o| o != cleared);
-            }
         }
 
         match request_assigner.role {

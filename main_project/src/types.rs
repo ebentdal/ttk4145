@@ -125,7 +125,8 @@ pub struct RequestAssigner {
     pub id: String,
     pub role: Roles,
 
-    pub last_published_assignments: HashMap<String, Vec<Order>>, //kanskje unødvendig
+    pub last_published_assignments: HashMap<String, Vec<Order>>,
     pub last_seen: HashMap<String, Instant>,
-    pub peer_ttl: Duration, //disse to for å hindre master flickering
+    pub peer_states: HashMap<String, HeartbeatMSG>,  // Cache last known state of each peer
+    pub peer_ttl: Duration,
 }
