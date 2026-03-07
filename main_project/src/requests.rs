@@ -19,6 +19,7 @@ impl RequestAssigner {
             role,
             last_published_assignments: HashMap::new(),
             last_seen: HashMap::new(),
+            peer_states: HashMap::new(),
             peer_ttl: config::MASTER_ELECTION_TIMEOUT,
         }
     }
@@ -80,7 +81,7 @@ impl RequestAssigner {
 
     pub fn build_message_from_gossip(
         &mut self,
-        gossip: &[HeartbeatMSG],
+        _gossip: &[HeartbeatMSG],  // No longer used directly
         own_heartbeat: &HeartbeatMSG,
     ) {
         let num_floors = crate::config::NUM_FLOORS as usize;
@@ -88,7 +89,19 @@ impl RequestAssigner {
         self.message.states.clear();
         self.message.hall_requests = vec![[false, false]; num_floors];
 
-        for heartbeat in std::iter::once(own_heartbeat).chain(gossip) {
+        // Always include self
+        self.insert_state_from_heartbeat(own_heartbeat, num_floors);
+        self.merge_external_orders(own_heartbeat, num_floors);
+        
+        // Include all peers that are still alive (using cached states)
+        // Clone to avoid borrow conflict
+        let peer_states: Vec<_> = self.peer_states
+            .iter()
+            .filter(|(id, _)| *id != &self.id)
+            .map(|(_, hb)| hb.clone())
+            .collect();
+            
+        for heartbeat in &peer_states {
             self.insert_state_from_heartbeat(heartbeat, num_floors);
             self.merge_external_orders(heartbeat, num_floors);
         }
@@ -168,10 +181,14 @@ impl RequestAssigner {
         self.last_seen.insert(self.id.clone(), now);
         for heartbeat in &gossip_heartbeats {
             self.last_seen.insert(heartbeat.id.clone(), now);
+            // Cache the latest state from each peer
+            self.peer_states.insert(heartbeat.id.clone(), heartbeat.clone());
         }
 
         let ttl = self.peer_ttl;
         self.last_seen.retain(|_, t| now.duration_since(*t) <= ttl);
+        // Remove stale peer states
+        self.peer_states.retain(|id, _| self.last_seen.contains_key(id));
 
         let candidates: Vec<String> = self.last_seen.keys().cloned().collect();
 
@@ -207,6 +224,15 @@ impl RequestAssigner {
         network: &mut Heartbeat,
         fsm: Arc<ElevatorFSM>,
     ) {
+        // Aggregate external orders from all peers (for consistent button lights)
+        for heartbeat in gossip {
+            for order in &heartbeat.external_orders {
+                if !network.msg.external_orders.contains(order) {
+                    network.msg.external_orders.push(order.clone());
+                }
+            }
+        }
+        
         // Remove orders marked as completed in heartbeats
         for heartbeat in gossip {
             if let Some(cleared) = &heartbeat.cleared_order {
@@ -224,9 +250,10 @@ impl RequestAssigner {
         self.build_message_from_gossip(gossip, &network.msg);
 
         // Debug: show what we're sending to cost function
-        println!("[MASTER] gossip count: {}", gossip.len());
-        println!("[MASTER] hall_requests: {:?}", self.message.hall_requests);
-        println!("[MASTER] states: {:?}", self.message.states.keys().collect::<Vec<_>>());
+        println!("[MASTER] gossip: {} | cached peers: {} | states: {:?}", 
+            gossip.len(), 
+            self.peer_states.len(),
+            self.message.states.keys().collect::<Vec<_>>());
         
         let assignments = self.cost_function().await;
 
