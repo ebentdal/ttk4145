@@ -26,6 +26,7 @@ impl RequestAssigner {
 
     pub async fn cost_function(&self) -> HashMap<String, Vec<Order>> {
         let json_str = serde_json::to_string_pretty(&self.message).unwrap();
+        println!("[COST_FUNC] Input: {}", json_str);
         let child = Command::new("./hall_request_assigner")
             .arg("--input")
             .arg(&json_str)
@@ -47,6 +48,8 @@ impl RequestAssigner {
         }
 
         let raw: HashMap<String, Vec<Vec<bool>>> = serde_json::from_slice(&output.stdout).unwrap();
+        
+        println!("[COST_FUNC] Raw output: {:?}", raw);
 
         let mut assignments: HashMap<String, Vec<Order>> = HashMap::new();
 
@@ -75,6 +78,7 @@ impl RequestAssigner {
             }
             assignments.insert(id, orders);
         }
+        println!("[COST_FUNC] Parsed assignments: {:?}", assignments);
         assignments
     }
 
