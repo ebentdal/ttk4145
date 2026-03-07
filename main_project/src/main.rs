@@ -71,6 +71,9 @@ async fn main() {
 
         let gossip = network.collect_gossip_heartbeats().await;
 
+        // Clear orders that any peer has completed (works for both master and slave)
+        request_assigner.clear_completed_orders_from_gossip(&gossip, &mut network);
+
         request_assigner.elect_master(gossip.clone(), &mut network).await;
 
         while let Ok(orders) = button_rx.try_recv() {

@@ -135,29 +135,26 @@ impl RequestAssigner {
         &self,
         fsm: &Arc<ElevatorFSM>,
         orders: &[Order],
-        counter: i32,
     ) {
-        {
-            let mut inner = fsm.inner.lock().await;
-            if counter == inner.last_received_msg_counter {
-                return;
-            }
-            inner.last_received_msg_counter = counter;
-        }
-
         let currently_serving = {
             let inner = fsm.inner.lock().await;
             inner.currently_serving.clone()
         };
 
-        // Replace the queue with the new assignment from the cost function,
-        // skipping only the order currently being executed.
+        // Build the new queue (excluding currently serving order)
+        let new_queue: Vec<Order> = orders
+            .iter()
+            .filter(|o| currently_serving.as_ref() != Some(*o))
+            .cloned()
+            .collect();
+
+        // Only update if queue content actually changed
         let mut q = fsm.queue.lock().await;
-        q.clear();
-        for order in orders {
-            if currently_serving.as_ref() != Some(order) {
-                q.push(order.clone());
-            }
+        if *q != new_queue {
+            println!("[ENQUEUE] Updating queue: {:?} -> {:?}", 
+                q.iter().map(|o| format!("f{}", o.floor)).collect::<Vec<_>>(),
+                new_queue.iter().map(|o| format!("f{}", o.floor)).collect::<Vec<_>>());
+            *q = new_queue;
         }
     }   
 
@@ -227,18 +224,15 @@ impl RequestAssigner {
 
         self.build_message_from_gossip(gossip, &network.msg);
 
+        // Debug: show what we're sending to cost function
+        println!("[MASTER] gossip count: {}", gossip.len());
+        println!("[MASTER] hall_requests: {:?}", self.message.hall_requests);
+        println!("[MASTER] states: {:?}", self.message.states.keys().collect::<Vec<_>>());
+        
         let assignments = self.cost_function().await;
         println!("{:#?}",assignments);
 
         let self_id = network.id().to_string();
-        if !assignments.contains_key(&self_id) && !network.msg.external_orders.is_empty() {
-            let mut q = fsm.queue.lock().await;
-            for order in &network.msg.external_orders {
-                if !q.contains(order) {
-                    q.push(order.clone());
-                }
-            }
-        }
 
         if assignments != self.last_published_assignments {
             self.last_published_assignments = assignments.clone();
@@ -246,8 +240,12 @@ impl RequestAssigner {
             network.msg.counter += 1;
         }
 
-        if let Some(my_orders) = network.msg.assignments.get(&self_id) {
-            self.enqueue_orders(&fsm, my_orders, network.msg.counter).await;
+        // Debug: show what's assigned to us vs others
+        let my_orders = network.msg.assignments.get(&self_id);
+        println!("[MASTER {}] My assigned orders: {:?}", self_id, my_orders);
+        
+        if let Some(orders) = my_orders {
+            self.enqueue_orders(&fsm, orders).await;
         }
         
         // Update button lights to match all orders (external + internal)
@@ -257,12 +255,27 @@ impl RequestAssigner {
     pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: Arc<ElevatorFSM>) {
         if let Some(master_heartbeat) = gossip.iter().find(|heartbeat| matches!(heartbeat.role, Roles::Master)) {
             let my_id = network.id().to_string();
-            if let Some(my_orders) = master_heartbeat.assignments.get(&my_id) {
-                self.enqueue_orders(&fsm, my_orders, master_heartbeat.counter).await;
+            let my_orders = master_heartbeat.assignments.get(&my_id);
+            println!("[SLAVE {}] My assigned orders from master: {:?}", my_id, my_orders);
+            
+            if let Some(orders) = my_orders {
+                self.enqueue_orders(&fsm, orders).await;
             }
 
             // Hall lights from master (shared), cab lights from own orders only
             fsm.set_button_light(&master_heartbeat.external_orders, &network.msg.internal_orders).await;
+        } else {
+            println!("[SLAVE] No master found in gossip!");
+        }
+    }
+
+    /// Called by both master and slave to clear orders that any peer has completed
+    pub fn clear_completed_orders_from_gossip(&self, gossip: &[HeartbeatMSG], network: &mut Heartbeat) {
+        for heartbeat in gossip {
+            if let Some(cleared) = &heartbeat.cleared_order {
+                network.msg.external_orders.retain(|order| order != cleared);
+                network.msg.internal_orders.retain(|order| order != cleared);
+            }
         }
     }
 }
