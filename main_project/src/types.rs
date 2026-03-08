@@ -21,6 +21,12 @@ pub enum Event {
     ArrivedAtFloor,
 }
 
+pub enum OrderResult {
+    Completed(Order),
+    Empty,
+    Failed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Order {
     pub floor: u8,

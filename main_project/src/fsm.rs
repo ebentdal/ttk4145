@@ -156,7 +156,8 @@ impl ElevatorFSM {
         })
     }
 
-    pub async fn process_next_order(&self) -> Option<Order> {
+    pub async fn process_next_order(&self) -> OrderResult {
+        let order_start = std::time::Instant::now();
         loop {
             sleep(Duration::from_millis(100)).await;
 
@@ -166,7 +167,13 @@ impl ElevatorFSM {
             let mut queue = self.queue.lock().await;
             if queue.is_empty() {
                 inner.stop();
-                return None;
+                return OrderResult::Empty;
+            }
+
+            if order_start.elapsed() > crate::config::ORDER_TIMEOUT {
+                println!("[FSM] ORDER TIMEOUT — restarting");
+                inner.stop();
+                return OrderResult::Failed;
             }
 
             let next = Self::get_next_order(&queue, inner.prev_floor, inner.direction);
@@ -196,10 +203,12 @@ impl ElevatorFSM {
 
             drop(queue);
             drop(inner);
-            self.open_door_and_wait().await;
+            if !self.open_door_and_wait().await {
+                return OrderResult::Failed;
+            }
             self.inner.lock().await.state = ElevState::Idle;
 
-            return Some(served);
+            return OrderResult::Completed(served);
         }
     }
 
@@ -213,18 +222,23 @@ impl ElevatorFSM {
         (inner.prev_floor, inner.direction, behaviour)
     }
 
-    pub async fn open_door_and_wait(&self) {
+    pub async fn open_door_and_wait(&self) -> bool {
         let inner = self.inner.lock().await;
         Elevator::door_light(&inner.driver, true);
         drop(inner);
         sleep(Duration::from_secs(3)).await;
+        let obstruction_start = std::time::Instant::now();
         loop {
             let inner = self.inner.lock().await;
             if !Elevator::obstruction(&inner.driver) {
                 Elevator::door_light(&inner.driver, false);
-                return;
+                return true;
             }
             drop(inner);
+            if obstruction_start.elapsed() > crate::config::OBSTRUCTION_TIMEOUT {
+                println!("[FSM] OBSTRUCTION TIMEOUT — restarting");
+                return false;
+            }
             sleep(Duration::from_millis(40)).await;
         }
     }
@@ -238,5 +252,10 @@ impl ElevatorFSM {
                 Elevator::call_button_light(&inner.driver, floor, button as u8, active);
             }
         }
+    }
+
+    pub async fn I_failed_yes(&self){
+        println!("I have failed yes, so I must die yes");
+        
     }
 }
