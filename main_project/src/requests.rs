@@ -411,18 +411,23 @@ impl RequestAssigner {
     /// Called by both master and slave to clear orders that any peer has completed
     pub fn clear_completed_orders_from_gossip(&mut self, gossip: &[HeartbeatMSG], network: &mut Heartbeat) {
         let my_id = &network.msg.id;
-        
+
         for heartbeat in gossip {
             if let Some(cleared) = &heartbeat.cleared_order {
                 // External (hall) orders: clear from everyone
                 network.msg.external_orders.retain(|order| order != cleared);
-                
+
                 // Internal (cab) orders: only clear if it's MY cleared order
                 // Cabs are private - other elevators shouldn't clear my cabs
                 if &heartbeat.id == my_id {
                     network.msg.internal_orders.retain(|order| order != cleared);
                 }
-                
+
+                // Remove from all_cab_orders so peers stop re-broadcasting the stale order
+                if let Some(cabs) = network.msg.all_cab_orders.get_mut(&heartbeat.id) {
+                    cabs.retain(|o| o != cleared);
+                }
+
                 // Clear from cached peer_states (only external orders)
                 for (_, cached_hb) in self.peer_states.iter_mut() {
                     cached_hb.external_orders.retain(|o| o != cleared);

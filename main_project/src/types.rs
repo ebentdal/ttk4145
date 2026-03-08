@@ -98,8 +98,6 @@ pub struct HeartbeatMSG {
     pub counter: i32,
     pub role: Roles,
     pub assignments: std::collections::HashMap<String, Vec<Order>>,
-    /// Each elevator re-broadcasts every elevator's known cab orders.
-    /// This lets any peer restore cab orders after a crash/restart.
     pub all_cab_orders: std::collections::HashMap<String, Vec<Order>>,
     #[serde(rename = "clearedOrder")]
     pub cleared_order: Option<Order>,

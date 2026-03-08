@@ -140,6 +140,7 @@ async fn main() {
         network.msg.all_cab_orders.insert(my_id.clone(), network.msg.internal_orders.clone());
         for heartbeat in &gossip {
             for (id, cabs) in &heartbeat.all_cab_orders {
+                if id == &my_id { continue; } // We own our own entry; peers must not override it
                 let entry = network.msg.all_cab_orders.entry(id.clone()).or_default();
                 for order in cabs {
                     if !entry.contains(order) {
