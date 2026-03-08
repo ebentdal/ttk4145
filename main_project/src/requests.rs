@@ -151,12 +151,10 @@ impl RequestAssigner {
     fn recover_cab_orders_from_gossip(&self, gossip: &[HeartbeatMSG], network: &mut Heartbeat) {
         let my_id = network.id().to_string();
         for heartbeat in gossip {
-            if let Some(orders) = heartbeat.assignments.get(&my_id) {
-                for order in orders {
-                    if order.order_type == ButtonType::CabCall
-                        && !network.msg.internal_orders.contains(order)
-                    {
-                        println!("[RECOVER] Cab order f{} from peer {} assignments", order.floor, heartbeat.id);
+            if let Some(cabs) = heartbeat.all_cab_orders.get(&my_id) {
+                for order in cabs {
+                    if !network.msg.internal_orders.contains(order) {
+                        println!("[RECOVER] Cab order f{} from peer {}", order.floor, heartbeat.id);
                         network.msg.internal_orders.push(order.clone());
                         network.msg.counter += 1;
                     }
