@@ -13,6 +13,7 @@ fn restart_self() -> ! {
     let exe = std::env::current_exe().expect("Failed to get current executable");
     let args: Vec<String> = std::env::args().skip(1).collect();
     println!("[RESTART] Re-executing {:?} with args {:?}", exe, args);
+    std::thread::sleep(Duration::from_secs(2));
     let err = std::process::Command::new(exe)
         .args(&args)
         .exec();

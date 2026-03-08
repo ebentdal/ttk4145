@@ -254,8 +254,5 @@ impl ElevatorFSM {
         }
     }
 
-    pub async fn I_failed_yes(&self){
-        println!("I have failed yes, so I must die yes");
-        
-    }
+
 }
