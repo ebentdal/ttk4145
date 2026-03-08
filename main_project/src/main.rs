@@ -8,6 +8,17 @@ use std::sync::Arc;
 use types::*;
 use tokio::time::Duration;
 
+fn restart_self() -> ! {
+    use std::os::unix::process::CommandExt;
+    let exe = std::env::current_exe().expect("Failed to get current executable");
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    println!("[RESTART] Re-executing {:?} with args {:?}", exe, args);
+    let err = std::process::Command::new(exe)
+        .args(&args)
+        .exec();
+    panic!("Failed to restart: {}", err);
+}
+
 
 // entry point of the elevator application.
 // creates the FSM, network and request assigner, spawns a queue runner and
@@ -17,7 +28,12 @@ use tokio::time::Duration;
 async fn main() {
     println!("Main started");
 
-    let addr = format!("localhost:{}", config::ELEVATOR_PORT);
+    let port: u16 = std::env::args()
+        .nth(1)
+        .map(|s| s.parse().expect("Invalid port number"))
+        .unwrap_or(config::ELEVATOR_PORT);
+
+    let addr = format!("localhost:{}", port);
     println!("Connecting to elevator simulator at {}", addr);
 
     let fsm = Arc::new(ElevatorFSM::new(&addr).await);
@@ -34,14 +50,17 @@ async fn main() {
 
     let (completed_tx, mut completed_rx) = tokio::sync::mpsc::unbounded_channel::<Order>();
     let (button_tx, mut button_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<Order>>();
+    let (fail_tx, mut fail_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let mut clear_completed_after = None::<tokio::time::Instant>;
 
     tokio::spawn({
         let fsm = Arc::clone(&fsm);
         async move {
             loop {
-                if let Some(order) = fsm.process_next_order().await {
-                    let _ = completed_tx.send(order);
+                match fsm.process_next_order().await {
+                    OrderResult::Completed(order) => { let _ = completed_tx.send(order); }
+                    OrderResult::Failed => { let _ = fail_tx.send(()); return; }
+                    OrderResult::Empty => {}
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
@@ -62,6 +81,15 @@ async fn main() {
     });
 
     loop {
+        // Check for failure signal (obstruction/order timeout)
+        if fail_rx.try_recv().is_ok() {
+            println!("[MAIN] Failure detected — stopping motor and restarting");
+            let inner = fsm.inner.lock().await;
+            driver_rust::elevio::elev::Elevator::motor_direction(&inner.driver, driver_rust::elevio::elev::DIRN_STOP);
+            drop(inner);
+            restart_self();
+        }
+
         let (floor, direction, status) = fsm.get_state().await;
         network.msg.floor = floor;
         network.msg.direction = direction;
