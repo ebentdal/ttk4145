@@ -137,7 +137,7 @@ async fn main() {
 
         match request_assigner.role {
             Roles::Master => request_assigner.master(&gossip, &mut network, fsm.clone()).await,
-            Roles::Slave  => request_assigner.slave(&gossip, &network, fsm.clone()).await,
+            Roles::Slave  => request_assigner.slave(&gossip, &mut network, fsm.clone()).await,
         }
 
         {

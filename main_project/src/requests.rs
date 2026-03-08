@@ -148,6 +148,23 @@ impl RequestAssigner {
         }
     }
 
+    fn recover_cab_orders_from_gossip(&self, gossip: &[HeartbeatMSG], network: &mut Heartbeat) {
+        let my_id = network.id().to_string();
+        for heartbeat in gossip {
+            if let Some(orders) = heartbeat.assignments.get(&my_id) {
+                for order in orders {
+                    if order.order_type == ButtonType::CabCall
+                        && !network.msg.internal_orders.contains(order)
+                    {
+                        println!("[RECOVER] Cab order f{} from peer {} assignments", order.floor, heartbeat.id);
+                        network.msg.internal_orders.push(order.clone());
+                        network.msg.counter += 1;
+                    }
+                }
+            }
+        }
+    }
+
     async fn enqueue_orders(
         &self,
         fsm: &Arc<ElevatorFSM>,
@@ -290,6 +307,7 @@ impl RequestAssigner {
             }
         }
 
+        self.recover_cab_orders_from_gossip(gossip, network);
         self.build_message_from_gossip(gossip, &network.msg);
         
         // Collect orders that are already assigned to someone
@@ -365,12 +383,14 @@ impl RequestAssigner {
         fsm.set_button_light(&network.msg.external_orders, &network.msg.internal_orders).await;
     }
 
-    pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &Heartbeat, fsm: Arc<ElevatorFSM>) {
+    pub async fn slave(&mut self, gossip: &[HeartbeatMSG], network: &mut Heartbeat, fsm: Arc<ElevatorFSM>) {
         if let Some(master_heartbeat) = gossip.iter().find(|heartbeat| matches!(heartbeat.role, Roles::Master)) {
             let my_id = network.id().to_string();
             let my_orders = master_heartbeat.assignments.get(&my_id);
             println!("[SLAVE {}] My assigned orders from master: {:?}", my_id, my_orders);
-            
+
+            self.recover_cab_orders_from_gossip(gossip, network);
+
             // Combine assigned hall orders with local cab orders
             let mut all_my_orders: Vec<Order> = my_orders.cloned().unwrap_or_default();
             for cab_order in &network.msg.internal_orders {
@@ -378,7 +398,7 @@ impl RequestAssigner {
                     all_my_orders.push(cab_order.clone());
                 }
             }
-            
+
             self.enqueue_orders(&fsm, &all_my_orders).await;
 
             // Hall lights from master (shared), cab lights from own orders only
