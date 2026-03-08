@@ -16,12 +16,15 @@ impl ElevatorInner {
                 Elevator::floor_indicator(&mut driver, floor);
 
                 Elevator::door_light(&driver, false);
+
+                while Elevator::obstruction(&driver) {sleep(Duration::from_millis(100)).await;};
+
                 for f in 0..NUM_FLOORS {
                     for btn in 0..3u8 {
                         Elevator::call_button_light(&driver, f, btn, false);
                     }
                 }
-                while Elevator::obstruction(&driver) {sleep(Duration::from_millis(100)).await;};
+
                 return Self {
                     obstruction: Elevator::obstruction(&driver),
                     driver,
