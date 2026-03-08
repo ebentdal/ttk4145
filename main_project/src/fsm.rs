@@ -14,6 +14,7 @@ impl ElevatorInner {
             if let Some(floor) = Elevator::floor_sensor(&driver) {
                 Elevator::motor_direction(&mut driver, DIRN_STOP);
                 Elevator::floor_indicator(&mut driver, floor);
+                while Elevator::obstruction(&driver) {sleep(Duration::from_millis(100)).await;};
                 return Self {
                     obstruction: Elevator::obstruction(&driver),
                     driver,
