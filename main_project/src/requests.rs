@@ -148,7 +148,7 @@ impl RequestAssigner {
         }
     }
 
-    fn recover_cab_orders_from_gossip(&self, gossip: &[HeartbeatMSG], network: &mut Heartbeat) {
+    pub fn recover_cab_orders_from_gossip(&self, gossip: &[HeartbeatMSG], network: &mut Heartbeat) {
         let my_id = network.id().to_string();
         for heartbeat in gossip {
             if let Some(cabs) = heartbeat.all_cab_orders.get(&my_id) {
@@ -305,7 +305,6 @@ impl RequestAssigner {
             }
         }
 
-        self.recover_cab_orders_from_gossip(gossip, network);
         self.build_message_from_gossip(gossip, &network.msg);
         
         // Collect orders that are already assigned to someone
@@ -386,8 +385,6 @@ impl RequestAssigner {
             let my_id = network.id().to_string();
             let my_orders = master_heartbeat.assignments.get(&my_id);
             println!("[SLAVE {}] My assigned orders from master: {:?}", my_id, my_orders);
-
-            self.recover_cab_orders_from_gossip(gossip, network);
 
             // Combine assigned hall orders with local cab orders
             let mut all_my_orders: Vec<Order> = my_orders.cloned().unwrap_or_default();
