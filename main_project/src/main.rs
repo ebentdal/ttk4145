@@ -49,6 +49,13 @@ async fn main() {
     let mut request_assigner =
         RequestAssigner::new(network.id().to_string(), Roles::Slave, message);
 
+    // One-time cab order recovery on startup: wait for one round of gossip
+    // before broadcasting our own state, so peers still have our pre-crash cabs.
+    {
+        let gossip = network.collect_gossip_heartbeats().await;
+        request_assigner.recover_cab_orders_from_gossip(&gossip, &mut network);
+    }
+
     let (completed_tx, mut completed_rx) = tokio::sync::mpsc::unbounded_channel::<Order>();
     let (button_tx, mut button_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<Order>>();
     let (fail_tx, mut fail_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
@@ -135,9 +142,24 @@ async fn main() {
             }
         }
 
+
+        let my_id = network.id().to_string();
+        network.msg.all_cab_orders.insert(my_id.clone(), network.msg.internal_orders.clone());
+        for heartbeat in &gossip {
+            for (id, cabs) in &heartbeat.all_cab_orders {
+                if id == &my_id { continue; } // We own our own entry; peers must not override it
+                let entry = network.msg.all_cab_orders.entry(id.clone()).or_default();
+                for order in cabs {
+                    if !entry.contains(order) {
+                        entry.push(order.clone());
+                    }
+                }
+            }
+        }
+
         match request_assigner.role {
             Roles::Master => request_assigner.master(&gossip, &mut network, fsm.clone()).await,
-            Roles::Slave  => request_assigner.slave(&gossip, &network, fsm.clone()).await,
+            Roles::Slave  => request_assigner.slave(&gossip, &mut network, fsm.clone()).await,
         }
 
         {

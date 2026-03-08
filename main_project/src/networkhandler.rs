@@ -28,6 +28,7 @@ impl Heartbeat {
             counter: 0,
             role: Roles::Slave,
             assignments: HashMap::new(),
+            all_cab_orders: HashMap::new(),
             cleared_order: None,
         };
 
@@ -129,6 +130,10 @@ impl Heartbeat {
     pub fn order_completed(&mut self, order: Order) {
         self.msg.external_orders.retain(|o| o != &order);
         self.msg.internal_orders.retain(|o| o != &order);
+        // Keep all_cab_orders in sync so peers stop re-broadcasting this cab
+        for cabs in self.msg.all_cab_orders.values_mut() {
+            cabs.retain(|o| o != &order);
+        }
         self.msg.cleared_order = Some(order);
         self.msg.counter += 1;
     }

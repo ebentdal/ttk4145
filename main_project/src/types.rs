@@ -97,7 +97,8 @@ pub struct HeartbeatMSG {
     pub status: Behaviour,
     pub counter: i32,
     pub role: Roles,
-    pub assignments: std::collections::HashMap<String, Vec<Order>>, 
+    pub assignments: std::collections::HashMap<String, Vec<Order>>,
+    pub all_cab_orders: std::collections::HashMap<String, Vec<Order>>,
     #[serde(rename = "clearedOrder")]
     pub cleared_order: Option<Order>,
 }
