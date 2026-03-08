@@ -8,6 +8,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use tokio::time::Instant;
 
+use driver_rust::elevio::elev::{DIRN_DOWN, DIRN_STOP, DIRN_UP};
 use std::sync::Arc;
 
 impl RequestAssigner {
@@ -124,10 +125,10 @@ impl RequestAssigner {
             behaviour: heartbeat.status.clone(),
             floor: heartbeat.floor,
             direction: match heartbeat.direction {
-                0 => Direction::Stop,
-                1 => Direction::Up,
-                2 => Direction::Down,
-                _ => Direction::Stop,
+                DIRN_STOP => Direction::Stop,
+                DIRN_UP   => Direction::Up,
+                DIRN_DOWN => Direction::Down,
+                _         => Direction::Stop,
             },
             cab_requests: cab,
         };
@@ -152,19 +153,20 @@ impl RequestAssigner {
         fsm: &Arc<ElevatorFSM>,
         orders: &[Order],
     ) {
-        let (currently_serving, current_floor) = {
+        let currently_serving = {
             let inner = fsm.inner.lock().await;
-            (inner.currently_serving.clone(), inner.prev_floor)
+            inner.currently_serving.clone()
         };
 
-        // Build queue excluding currently serving, sorted by distance (closest first)
-        let mut new_queue: Vec<Order> = orders
-            .iter()
-            .filter(|o| currently_serving.as_ref() != Some(*o))
-            .cloned()
-            .collect();
+        // Build the new queue, but PRESERVE currently serving order
+        let mut new_queue: Vec<Order> = orders.to_vec();
         
-        new_queue.sort_by_key(|o| (o.floor as i16 - current_floor as i16).abs());
+        // If we're currently serving an order, make sure it stays in the queue
+        if let Some(ref serving) = currently_serving {
+            if !new_queue.contains(serving) {
+                new_queue.insert(0, serving.clone());
+            }
+        }
 
         let mut q = fsm.queue.lock().await;
         if *q != new_queue {
