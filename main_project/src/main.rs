@@ -95,6 +95,17 @@ async fn main() {
             clear_completed_after = Some(tokio::time::Instant::now() + Duration::from_secs(1));
         }
 
+        // Aggregate external orders from all peers so every elevator knows all hall orders.
+        // This ensures hall orders survive master failure: when a slave becomes master,
+        // it already has the complete set.
+        for heartbeat in &gossip {
+            for order in &heartbeat.external_orders {
+                if !network.msg.external_orders.contains(order) {
+                    network.msg.external_orders.push(order.clone());
+                }
+            }
+        }
+
         match request_assigner.role {
             Roles::Master => request_assigner.master(&gossip, &mut network, fsm.clone()).await,
             Roles::Slave  => request_assigner.slave(&gossip, &network, fsm.clone()).await,

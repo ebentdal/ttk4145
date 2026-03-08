@@ -289,15 +289,6 @@ impl RequestAssigner {
                 orders.retain(|o| o != cleared);
             }
         }
-        
-        // Now aggregate external orders from all peers (for consistent button lights)
-        for heartbeat in gossip {
-            for order in &heartbeat.external_orders {
-                if !network.msg.external_orders.contains(order) {
-                    network.msg.external_orders.push(order.clone());
-                }
-            }
-        }
 
         self.build_message_from_gossip(gossip, &network.msg);
         
