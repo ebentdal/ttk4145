@@ -131,12 +131,12 @@ async fn main() {
             clear_completed_after = Some(tokio::time::Instant::now() + Duration::from_secs(1));
         }
 
-        // Aggregate external orders from all peers so every elevator knows all hall orders.
-        // This ensures hall orders survive master failure: when a slave becomes master,
-        // it already has the complete set.
+        // Aggregate external orders from all peers (survives master failure).
+        // Skip any order that a peer or ourselves has recently cleared.
+        let cleared = network.collect_cleared_orders(&gossip);
         for heartbeat in &gossip {
             for order in &heartbeat.external_orders {
-                if !network.msg.external_orders.contains(order) {
+                if !cleared.contains(order) && !network.msg.external_orders.contains(order) {
                     network.msg.external_orders.push(order.clone());
                 }
             }

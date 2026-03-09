@@ -386,18 +386,21 @@ impl RequestAssigner {
             let my_orders = master_heartbeat.assignments.get(&my_id);
             println!("[SLAVE {}] My assigned orders from master: {:?}", my_id, my_orders);
 
-            // Combine assigned hall orders with local cab orders
-            let mut all_my_orders: Vec<Order> = my_orders.cloned().unwrap_or_default();
-            for cab_order in &network.msg.internal_orders {
-                if !all_my_orders.contains(cab_order) {
-                    all_my_orders.push(cab_order.clone());
-                }
+            // Filter out recently-cleared orders to prevent flicker
+            let cleared = network.collect_cleared_orders(gossip);
+            let not_cleared = |o: &&Order| !cleared.contains(o);
+
+            let mut all_my_orders: Vec<Order> = my_orders
+                .into_iter().flatten().filter(not_cleared).cloned().collect();
+            for cab in network.msg.internal_orders.iter().filter(not_cleared) {
+                if !all_my_orders.contains(cab) { all_my_orders.push(cab.clone()); }
             }
 
             self.enqueue_orders(&fsm, &all_my_orders).await;
 
-            // Hall lights from master (shared), cab lights from own orders only
-            fsm.set_button_light(&master_heartbeat.external_orders, &network.msg.internal_orders).await;
+            let ext: Vec<Order> = master_heartbeat.external_orders.iter().filter(not_cleared).cloned().collect();
+            let int: Vec<Order> = network.msg.internal_orders.iter().filter(not_cleared).cloned().collect();
+            fsm.set_button_light(&ext, &int).await;
         } else {
             // Even if no master, still handle local cab orders
             self.enqueue_orders(&fsm, &network.msg.internal_orders).await;

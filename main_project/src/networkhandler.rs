@@ -127,6 +127,17 @@ impl Heartbeat {
         &self.msg.id
     }
 
+    /// Collect all cleared_order entries from self + gossip peers.
+    pub fn collect_cleared_orders(&self, gossip: &[HeartbeatMSG]) -> Vec<Order> {
+        let mut cleared = Vec::new();
+        for src in std::iter::once(&self.msg).chain(gossip.iter()) {
+            if let Some(ref o) = src.cleared_order {
+                if !cleared.contains(o) { cleared.push(o.clone()); }
+            }
+        }
+        cleared
+    }
+
     pub fn order_completed(&mut self, order: Order) {
         self.msg.external_orders.retain(|o| o != &order);
         self.msg.internal_orders.retain(|o| o != &order);
