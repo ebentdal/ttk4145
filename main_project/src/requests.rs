@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use crate::types::{ElevatorFSM, Order};
 use tokio::process::Command;
 use std::process::Stdio;
 use crate::types::*;
@@ -7,7 +6,6 @@ use crate::config;
 use std::net::IpAddr;
 use std::str::FromStr;
 use tokio::time::Instant;
-use driver_rust::elevio::elev::{DIRN_DOWN, DIRN_STOP, DIRN_UP};
 use std::sync::Arc;
 
 impl RequestAssigner {
@@ -58,6 +56,7 @@ impl RequestAssigner {
 
         let assignments = raw.into_iter().map(|(id, per_floor)| {
             let orders = per_floor.iter().enumerate().flat_map(|(floor, cols)| {
+                // Column order from hall_request_assigner with --includeCab: [0]=HallUp, [1]=HallDown, [2]=CabCall
                 [
                     (cols.get(0), ButtonType::HallUp),
                     (cols.get(1), ButtonType::HallDown),
@@ -112,12 +111,7 @@ impl RequestAssigner {
         let state = ElevatorState {
             behaviour: peer.behaviour.clone(),
             floor: peer.floor,
-            direction: match peer.direction {
-                DIRN_STOP => Direction::Stop,
-                DIRN_UP   => Direction::Up,
-                DIRN_DOWN => Direction::Down,
-                _         => Direction::Stop,
-            },
+            direction: peer.direction,
             cab_requests,
         };
 
@@ -150,28 +144,6 @@ impl RequestAssigner {
                     }
                 }
             }
-        }
-    }
-
-
-    /// Replace the FSM queue with the given orders, preserving any order currently being served.
-    async fn enqueue_orders(&self, fsm: &Arc<ElevatorFSM>, orders: &[Order]) {
-        let currently_serving = {
-            let inner = fsm.inner.lock().await;
-            inner.currently_serving.clone()
-        };
-
-        let mut new_queue: Vec<Order> = orders.to_vec();
-        // Do not interrupt an order already in progress
-        if let Some(ref serving) = currently_serving {
-            if !new_queue.contains(serving) {
-                new_queue.insert(0, serving.clone());
-            }
-        }
-
-        let mut q = fsm.queue.lock().await;
-        if *q != new_queue {
-            *q = new_queue;
         }
     }
 
@@ -221,10 +193,7 @@ impl RequestAssigner {
     }
 
 
-    pub async fn master(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorFSM>) {
-        // Remove completed orders from master-specific tracking structures.
-        // (hall_orders / cab_orders on network.state are already cleared by
-        //  clear_completed_orders_from_gossip and order_completed before we get here.)
+    fn remove_cleared_from_tracking(&mut self, gossip: &[GossipMsg], network: &mut Network) {
         let all_cleared: Vec<Order> = std::iter::once(&network.state)
             .chain(gossip.iter())
             .filter_map(|p| p.cleared_order.clone())
@@ -241,11 +210,11 @@ impl RequestAssigner {
                 orders.retain(|o| o != cleared);
             }
         }
+    }
 
-        self.build_cost_input(&network.state);
-
-        // Mask already-assigned orders so the cost function only sees NEW requests.
-        // This prevents reassigning mid-execution.
+    /// Zero out already-assigned hall slots so the cost function only sees NEW requests.
+    /// Prevents reassigning an order that is already in progress.
+    fn mask_assigned_orders(&mut self) {
         for order in self.last_published_assignments.values().flatten() {
             let floor = order.floor as usize;
             if floor < self.message.hall_requests.len() {
@@ -256,6 +225,17 @@ impl RequestAssigner {
                 }
             }
         }
+    }
+
+    pub async fn master(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorFSM>) {
+        // Remove completed orders from master-specific tracking structures.
+        // (hall_orders / cab_orders on network.state are already cleared by
+        //  clear_completed_orders_from_gossip and order_completed before we get here.)
+        self.remove_cleared_from_tracking(gossip, network);
+
+        self.build_cost_input(&network.state);
+
+        self.mask_assigned_orders();
 
         println!("[MASTER] peers: {} | unassigned hall_requests: {:?}",
             self.cached_peers.len(), self.message.hall_requests);
@@ -291,7 +271,7 @@ impl RequestAssigner {
             if !my_orders.contains(cab) { my_orders.push(cab.clone()); }
         }
 
-        self.enqueue_orders(&fsm, &my_orders).await;
+        fsm.set_queue(&my_orders).await;
         fsm.set_button_light(&network.state.hall_orders, &network.state.cab_orders).await;
     }
 
@@ -311,14 +291,14 @@ impl RequestAssigner {
                 if !my_orders.contains(cab) { my_orders.push(cab.clone()); }
             }
 
-            self.enqueue_orders(&fsm, &my_orders).await;
+            fsm.set_queue(&my_orders).await;
 
             let hall: Vec<Order> = master.hall_orders.iter().filter(not_cleared).cloned().collect();
             let cab:  Vec<Order> = network.state.cab_orders.iter().filter(not_cleared).cloned().collect();
             fsm.set_button_light(&hall, &cab).await;
         } else {
             // No master visible — serve our own cab orders at minimum
-            self.enqueue_orders(&fsm, &network.state.cab_orders).await;
+            fsm.set_queue(&network.state.cab_orders).await;
             println!("[SLAVE] No master found in peer list");
         }
     }

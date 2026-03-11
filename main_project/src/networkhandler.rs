@@ -23,7 +23,7 @@ impl Network {
             hall_orders: Vec::new(),
             cab_orders: Vec::new(),
             floor: 0,
-            direction: 0,
+            direction: Direction::Stop,
             behaviour: Behaviour::Idle,
             counter: 0,
             role: Roles::Slave,
@@ -62,6 +62,7 @@ impl Network {
 
         // Relay received UDP messages into a tokio broadcast channel so async
         // tasks can subscribe without blocking on crossbeam.
+        // 512 slots: peers broadcast at ~10 Hz; this buffers ~5 s of messages before dropping.
         let (relay_tx, _) = broadcast::channel::<GossipMsg>(512);
         let relay_tx_clone = relay_tx.clone();
         std::thread::spawn(move || {
@@ -83,7 +84,7 @@ impl Network {
     /// Broadcast our current state to all peers.
     pub async fn broadcast_state(&self) {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-        self.udp_tx.send(self.state.clone()).unwrap();
+        self.udp_tx.send(self.state.clone()).expect("UDP TX channel closed unexpectedly");
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 
@@ -117,15 +118,15 @@ impl Network {
 
     /// Collect all recently-cleared orders from self and peers (used to suppress re-adding).
     pub fn collect_cleared_orders(&self, gossip: &[GossipMsg]) -> Vec<Order> {
-        std::iter::once(&self.state)
-            .chain(gossip.iter())
-            .filter_map(|p| p.cleared_order.clone())
-            .collect::<Vec<_>>()
-            .into_iter()
-            .fold(Vec::new(), |mut acc, o| {
-                if !acc.contains(&o) { acc.push(o); }
-                acc
-            })
+        let mut result = Vec::new();
+        for p in std::iter::once(&self.state).chain(gossip.iter()) {
+            if let Some(o) = &p.cleared_order {
+                if !result.contains(o) {
+                    result.push(o.clone());
+                }
+            }
+        }
+        result
     }
 
 
@@ -143,7 +144,7 @@ impl Network {
 
 
     /// Sync our broadcast state with the current FSM floor/direction/behaviour.
-    pub fn update_state(&mut self, (floor, direction, behaviour): (u8, u8, Behaviour)) {
+    pub fn update_state(&mut self, (floor, direction, behaviour): (u8, Direction, Behaviour)) {
         self.state.floor = floor;
         self.state.direction = direction;
         self.state.behaviour = behaviour;

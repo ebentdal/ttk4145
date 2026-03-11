@@ -1,5 +1,4 @@
 use driver_rust::elevio::elev::Elevator;
-use driver_rust::elevio::elev::{DIRN_DOWN, DIRN_STOP, DIRN_UP};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -9,16 +8,16 @@ use strum::IntoEnumIterator;
 
 impl ElevatorInner {
     async fn new(addr: &str) -> Self {
-        let driver = Elevator::init(addr, NUM_FLOORS).unwrap();
-        Elevator::motor_direction(&driver, DIRN_DOWN);
+        let driver = Elevator::init(addr, NUM_FLOORS).expect("Failed to connect to elevator simulator");
+        Elevator::motor_direction(&driver, Direction::Down as u8);
         loop {
             if let Some(floor) = Elevator::floor_sensor(&driver) {
-                Elevator::motor_direction(&driver, DIRN_STOP);
+                Elevator::motor_direction(&driver, Direction::Stop as u8);
                 Elevator::floor_indicator(&driver, floor);
 
                 for f in 0..NUM_FLOORS {
-                    for btn in 0..3u8 {
-                        Elevator::call_button_light(&driver, f, btn, false);
+                    for btn in ButtonType::iter() {
+                        Elevator::call_button_light(&driver, f, btn as u8, false);
                     }
                 }
 
@@ -29,8 +28,8 @@ impl ElevatorInner {
                 return Self {
                     driver,
                     last_floor: floor,
-                    direction: DIRN_STOP,
-                    state: ElevState::Init,
+                    direction: Direction::Stop,
+                    state: Behaviour::Idle,
                     currently_serving: None,
                 };
             }
@@ -46,29 +45,28 @@ impl ElevatorInner {
     }
 
     fn stop(&mut self) {
-        self.direction = DIRN_STOP;
-        self.state = ElevState::Idle;
+        self.direction = Direction::Stop;
+        self.state = Behaviour::Idle;
         self.currently_serving = None;
-        Elevator::motor_direction(&self.driver, DIRN_STOP);
+        Elevator::motor_direction(&self.driver, Direction::Stop as u8);
     }
 
     fn move_toward(&mut self, target: u8, queue: &[Order]) {
-        self.state = ElevState::WorkingOrder;
+        self.state = Behaviour::Moving;
         self.currently_serving = queue.iter().find(|o| o.floor == target).cloned();
-        self.direction = if self.last_floor < target { DIRN_UP } else { DIRN_DOWN };
-        Elevator::motor_direction(&self.driver, self.direction);
+        self.direction = if self.last_floor < target { Direction::Up } else { Direction::Down };
+        Elevator::motor_direction(&self.driver, self.direction as u8);
     }
 
     fn serve_order(&mut self, queue: &mut Vec<Order>) -> Option<Order> {
         let travel_dir = self.direction;
-        self.state = ElevState::WorkingOrder;
-        Elevator::motor_direction(&self.driver, DIRN_STOP);
+        Elevator::motor_direction(&self.driver, Direction::Stop as u8);
 
         let pos = queue.iter().position(|o| {
             o.floor == self.last_floor && match travel_dir {
-                DIRN_UP   => o.order_type != ButtonType::HallDown,
-                DIRN_DOWN => o.order_type != ButtonType::HallUp,
-                _         => true,
+                Direction::Up   => o.order_type != ButtonType::HallDown,
+                Direction::Down => o.order_type != ButtonType::HallUp,
+                Direction::Stop => true,
             }
         })?;
 
@@ -77,10 +75,10 @@ impl ElevatorInner {
 
         // Keep travel direction if there are more orders ahead; otherwise stop.
         self.direction = if queue.iter().any(|o| match travel_dir {
-            DIRN_UP   => o.floor > self.last_floor,
-            DIRN_DOWN => o.floor < self.last_floor,
-            _         => false,
-        }) { travel_dir } else { DIRN_STOP };
+            Direction::Up   => o.floor > self.last_floor,
+            Direction::Down => o.floor < self.last_floor,
+            Direction::Stop => false,
+        }) { travel_dir } else { Direction::Stop };
 
         Some(served)
     }
@@ -108,22 +106,22 @@ impl ElevatorFSM {
     }
 
     /// SCAN-like next target floor selection.
-    /// DIRN_UP/DOWN: nearest order ahead that matches the direction.
+    /// Direction::Up/Down: nearest order ahead that matches the direction.
     /// Falls back to closest order if none are direction-compatible.
-    fn get_next_order(queue: &[Order], current: u8, direction: u8) -> u8 {
+    fn get_next_order(queue: &[Order], current: u8, direction: Direction) -> u8 {
         let dist = |f: u8| (f as i16 - current as i16).unsigned_abs();
 
         let best = queue.iter().filter_map(|o| {
             let skip = match direction {
-                DIRN_UP   => o.floor < current || o.order_type == ButtonType::HallDown,
-                DIRN_DOWN => o.floor > current || o.order_type == ButtonType::HallUp,
-                _         => false,
+                Direction::Up   => o.floor < current || o.order_type == ButtonType::HallDown,
+                Direction::Down => o.floor > current || o.order_type == ButtonType::HallUp,
+                Direction::Stop => false,
             };
             if skip { None } else { Some(o.floor) }
         }).min_by_key(|&f| match direction {
-            DIRN_UP   => f as i16,
-            DIRN_DOWN => -(f as i16),
-            _         => dist(f) as i16,
+            Direction::Up   => f as i16,
+            Direction::Down => -(f as i16),
+            Direction::Stop => dist(f) as i16,
         });
 
         best.unwrap_or_else(|| {
@@ -164,7 +162,7 @@ impl ElevatorFSM {
             let Some(served) = inner.serve_order(&mut queue) else {
                 // No direction-compatible order here (e.g. only HallDown while going up).
                 // Reset direction so next iteration picks the closest order unconditionally.
-                inner.direction = DIRN_STOP;
+                inner.direction = Direction::Stop;
                 continue;
             };
 
@@ -180,34 +178,31 @@ impl ElevatorFSM {
             if !self.open_door_and_wait().await {
                 return OrderResult::Failed;
             }
-            self.inner.lock().await.state = ElevState::Idle;
 
             return OrderResult::Completed(served);
         }
     }
 
-    pub async fn get_state(&self) -> (u8, u8, Behaviour) {
+    pub async fn get_state(&self) -> (u8, Direction, Behaviour) {
         let inner = self.inner.lock().await;
-        let behaviour = match inner.state {
-            ElevState::WorkingOrder if inner.direction == DIRN_STOP => Behaviour::DoorOpen,
-            ElevState::WorkingOrder                                  => Behaviour::Moving,
-            _                                                        => Behaviour::Idle,
-        };
-        (inner.last_floor, inner.direction, behaviour)
+        (inner.last_floor, inner.direction, inner.state)
     }
 
     /// Open the door for 3 seconds, then wait for the obstruction switch to clear.
     /// Returns false if the obstruction timeout is exceeded (triggers a restart).
     pub async fn open_door_and_wait(&self) -> bool {
-        let inner = self.inner.lock().await;
-        Elevator::door_light(&inner.driver, true);
-        drop(inner);
+        {
+            let mut inner = self.inner.lock().await;
+            Elevator::door_light(&inner.driver, true);
+            inner.state = Behaviour::DoorOpen;
+        }
         sleep(Duration::from_secs(3)).await;
         let obstruction_start = std::time::Instant::now();
         loop {
-            let inner = self.inner.lock().await;
+            let mut inner = self.inner.lock().await;
             if !Elevator::obstruction(&inner.driver) {
                 Elevator::door_light(&inner.driver, false);
+                inner.state = Behaviour::Idle;
                 return true;
             }
             drop(inner);
@@ -256,9 +251,27 @@ impl ElevatorFSM {
         (completed_rx, button_rx, fail_rx)
     }
 
+    /// Replace the FSM queue with the given orders, preserving any order currently being served.
+    pub async fn set_queue(&self, orders: &[Order]) {
+        let currently_serving = {
+            let inner = self.inner.lock().await;
+            inner.currently_serving.clone()
+        };
+        let mut new_queue: Vec<Order> = orders.to_vec();
+        if let Some(ref serving) = currently_serving {
+            if !new_queue.contains(serving) {
+                new_queue.insert(0, serving.clone());
+            }
+        }
+        let mut q = self.queue.lock().await;
+        if *q != new_queue {
+            *q = new_queue;
+        }
+    }
+
     pub async fn emergency_stop(&self) {
         let inner = self.inner.lock().await;
-        Elevator::motor_direction(&inner.driver, DIRN_STOP);
+        Elevator::motor_direction(&inner.driver, Direction::Stop as u8);
     }
 
     pub async fn log_queue(&self) {

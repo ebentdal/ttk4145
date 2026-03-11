@@ -1,5 +1,5 @@
 use crossbeam_channel;
-use driver_rust::elevio::elev::Elevator;
+use driver_rust::elevio::elev::{Elevator, DIRN_DOWN, DIRN_STOP, DIRN_UP};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::time::{Duration, Instant};
@@ -7,13 +7,6 @@ use strum_macros::EnumIter;
 
 
 // --- FSM types ---
-
-#[derive(Copy, Clone, Debug)]
-pub enum ElevState {
-    Init,
-    WorkingOrder,
-    Idle,
-}
 
 pub enum OrderResult {
     Completed(Order),
@@ -40,8 +33,8 @@ use tokio::sync::Mutex;
 pub struct ElevatorInner {
     pub driver: Elevator,
     pub last_floor: u8,
-    pub direction: u8,
-    pub state: ElevState,
+    pub direction: Direction,
+    pub state: Behaviour,
     pub currently_serving: Option<Order>,
 }
 
@@ -59,7 +52,7 @@ pub enum Roles {
     Slave,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum Behaviour {
     #[serde(rename = "idle")]
     Idle,
@@ -69,12 +62,13 @@ pub enum Behaviour {
     DoorOpen,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Direction {
-    Up,
-    Down,
-    Stop,
+    Stop = DIRN_STOP,
+    Up   = DIRN_UP,
+    Down = DIRN_DOWN,
 }
 
 
@@ -87,7 +81,7 @@ pub struct GossipMsg {
     pub hall_orders: Vec<Order>,
     pub cab_orders: Vec<Order>,
     pub floor: u8,
-    pub direction: u8,
+    pub direction: Direction,
     pub behaviour: Behaviour,
     pub counter: i32,
     pub role: Roles,

@@ -73,7 +73,6 @@ async fn main() {
             Roles::Slave  => assigner.slave(&gossip, &mut network, fsm.clone()).await,
         }
 
-        fsm.log_queue().await;
         network.tick_cleared_order();
     }
 }
