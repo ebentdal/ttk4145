@@ -133,18 +133,42 @@ impl RequestAssigner {
 
 
     /// On startup: restore our own cab orders from peers who still hold our pre-crash state.
-    pub fn recover_cab_orders_from_gossip(&self, gossip: &[GossipMsg], network: &mut Network) {
+    /// Listens for up to 2 seconds or until receiving at least one gossip message.
+    pub async fn recover_cab_orders_from_gossip(&self, network: &mut Network) {
         let my_id = network.id().to_string();
-        for peer in gossip {
-            if let Some(cabs) = peer.peer_cab_orders.get(&my_id) {
-                for order in cabs {
-                    if !network.state.cab_orders.contains(order) {
-                        println!("[RECOVER] Cab order f{} from peer {}", order.floor, peer.id);
-                        network.state.cab_orders.push(order.clone());
-                        network.state.counter += 1;
+        let mut rx = network.incoming.subscribe();
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
+        let mut received_any = false;
+
+        println!("[RECOVER] Listening for cab orders (max 2s or until first heartbeat)...");
+
+        while tokio::time::Instant::now() < deadline {
+            let remaining = deadline - tokio::time::Instant::now();
+            match tokio::time::timeout(remaining, rx.recv()).await {
+                Ok(Ok(peer)) if peer.id != my_id => {
+                    received_any = true;
+                    if let Some(cabs) = peer.peer_cab_orders.get(&my_id) {
+                        for order in cabs {
+                            if !network.state.cab_orders.contains(order) {
+                                println!("[RECOVER] Cab order f{} from peer {}", order.floor, peer.id);
+                                network.state.cab_orders.push(order.clone());
+                                network.state.counter += 1;
+                            }
+                        }
                     }
+                    // Exit after receiving first gossip message
+                    break;
                 }
+                Ok(Err(_)) => break, // Channel error
+                Err(_) => break,     // Timeout
+                _ => {}
             }
+        }
+
+        if received_any {
+            println!("[RECOVER] Received heartbeat, recovery complete");
+        } else {
+            println!("[RECOVER] No heartbeat received within 2s, proceeding without recovery");
         }
     }
 
