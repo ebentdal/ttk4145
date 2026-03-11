@@ -5,6 +5,7 @@
 
 use driver_rust::elevio::elev::Elevator;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 use crate::config::{
     NUM_FLOORS, ORDER_TIMEOUT, OBSTRUCTION_TIMEOUT,

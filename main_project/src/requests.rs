@@ -6,7 +6,7 @@
 use std::{collections::HashMap, net::IpAddr, str::FromStr, process::Stdio, sync::Arc};
 use tokio::{process::Command, time::Instant};
 use crate::types::*;
-use crate::fsm::ElevatorGuard;
+
 use crate::config;
 
 impl RequestAssigner {

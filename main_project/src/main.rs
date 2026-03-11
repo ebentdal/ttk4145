@@ -9,7 +9,7 @@ mod requests;
 
 use std::sync::Arc;
 use types::*;
-use crate::fsm::ElevatorGuard;
+
 use tokio::time::Duration;
 
 fn elevator_addr() -> String {
