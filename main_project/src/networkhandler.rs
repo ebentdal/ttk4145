@@ -1,16 +1,20 @@
+//! UDP broadcast network layer.
+//!
+//! `Network` broadcasts this elevator's state every tick and collects
+//! state messages from peers via a crossbeam↔tokio channel bridge.
+
 use network_rust::udpnet;
-use std::net;
+use std::{collections::HashMap, net::TcpStream};
 use crossbeam_channel as cbc;
 use tokio::sync::broadcast;
 use crate::config::MSG_PORT;
 use crate::types::*;
-use std::collections::HashMap;
 
 
 impl Network {
 
     pub async fn new() -> Self {
-        let local_ip = net::TcpStream::connect("8.8.8.8:53")
+        let local_ip = TcpStream::connect("8.8.8.8:53")
             .unwrap()
             .local_addr()
             .unwrap()

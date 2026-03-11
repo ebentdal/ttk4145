@@ -1,5 +1,8 @@
-use crossbeam_channel;
+//! Shared types used across all modules.
+
+use crossbeam_channel::Sender;
 use driver_rust::elevio::elev::{Elevator, DIRN_DOWN, DIRN_STOP, DIRN_UP};
+use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::time::{Duration, Instant};
@@ -7,6 +10,21 @@ use strum_macros::EnumIter;
 
 
 // --- FSM types ---
+
+/// Physical elevator state: hardware driver plus current floor/direction/behaviour.
+pub struct ElevatorFSM {
+    pub driver:    Elevator,
+    pub floor:     u8,
+    pub direction: Direction,
+    pub behaviour: Behaviour,
+    pub serving:   Option<Order>,
+}
+
+/// Public handle to the elevator. Owns the hardware state and order queue.
+pub struct ElevatorGuard {
+    pub(crate) state: Mutex<ElevatorFSM>,
+    pub(crate) queue: Mutex<Vec<Order>>,
+}
 
 pub enum OrderResult {
     Completed(Order),
@@ -27,22 +45,6 @@ pub enum ButtonType {
     HallUp   = 0,
     HallDown = 1,
 }
-
-use tokio::sync::Mutex;
-
-pub struct ElevatorInner {
-    pub driver: Elevator,
-    pub last_floor: u8,
-    pub direction: Direction,
-    pub state: Behaviour,
-    pub currently_serving: Option<Order>,
-}
-
-pub struct ElevatorFSM {
-    pub queue: Mutex<Vec<Order>>,
-    pub inner: Mutex<ElevatorInner>,
-}
-
 
 // --- Shared types ---
 
@@ -98,7 +100,7 @@ pub struct Network {
     pub state: GossipMsg,
     /// Subscribe to this channel to receive messages from other peers.
     pub incoming: tokio::sync::broadcast::Sender<GossipMsg>,
-    pub udp_tx: crossbeam_channel::Sender<GossipMsg>,
+    pub udp_tx: Sender<GossipMsg>,
     /// When to stop broadcasting a cleared_order (1 s after completion).
     pub cleared_at: Option<Instant>,
 }
@@ -111,12 +113,12 @@ pub struct Network {
 pub struct Message {
     #[serde(rename = "hallRequests")]
     pub hall_requests: Vec<[bool; 2]>,
-    pub states: HashMap<String, ElevatorState>,
+    pub states: HashMap<String, AssignmentState>,
 }
 
 /// Per-elevator state sent to the hall_request_assigner binary.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ElevatorState {
+pub struct AssignmentState {
     pub behaviour: Behaviour,
     pub floor: u8,
     pub direction: Direction,

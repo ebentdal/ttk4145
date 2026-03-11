@@ -1,12 +1,13 @@
-use std::collections::HashMap;
-use tokio::process::Command;
-use std::process::Stdio;
+//! Order assignment and master/slave role management.
+//!
+//! `RequestAssigner` runs a leader election (lowest IP = master) and delegates
+//! hall-call assignment to the external `hall_request_assigner` binary.
+
+use std::{collections::HashMap, net::IpAddr, str::FromStr, process::Stdio, sync::Arc};
+use tokio::{process::Command, time::Instant};
 use crate::types::*;
+use crate::fsm::ElevatorGuard;
 use crate::config;
-use std::net::IpAddr;
-use std::str::FromStr;
-use tokio::time::Instant;
-use std::sync::Arc;
 
 impl RequestAssigner {
 
@@ -108,7 +109,7 @@ impl RequestAssigner {
             }
         }
 
-        let state = ElevatorState {
+        let state = AssignmentState {
             behaviour: peer.behaviour.clone(),
             floor: peer.floor,
             direction: peer.direction,
@@ -148,8 +149,9 @@ impl RequestAssigner {
     }
 
 
-    /// Elect the master as the peer with the lowest IP address among all live peers.
-    pub async fn elect_master(&mut self, gossip: Vec<GossipMsg>, network: &mut Network) {
+    /// Elect a role: the peer with the lowest IP becomes master, all others become slave.
+    /// Removes timed-out peers and triggers reassignment of their orders.
+    pub async fn run_election(&mut self, gossip: Vec<GossipMsg>, network: &mut Network) {
         let now = Instant::now();
 
         self.last_seen.insert(self.id.clone(), now);
@@ -193,6 +195,7 @@ impl RequestAssigner {
     }
 
 
+    /// Remove completed orders from cached peers and assignment maps so they are not re-assigned.
     fn remove_cleared_from_tracking(&mut self, gossip: &[GossipMsg], network: &mut Network) {
         let all_cleared: Vec<Order> = std::iter::once(&network.state)
             .chain(gossip.iter())
@@ -227,7 +230,8 @@ impl RequestAssigner {
         }
     }
 
-    pub async fn master(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorFSM>) {
+    /// Run one master-role cycle: assign hall orders and enqueue this elevator's orders.
+    pub async fn run_as_master(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorGuard>) {
         // Remove completed orders from master-specific tracking structures.
         // (hall_orders / cab_orders on network.state are already cleared by
         //  clear_completed_orders_from_gossip and order_completed before we get here.)
@@ -276,7 +280,8 @@ impl RequestAssigner {
     }
 
 
-    pub async fn slave(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorFSM>) {
+    /// Run one slave-role cycle: retrieve assignments from master and enqueue them.
+    pub async fn run_as_slave(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorGuard>) {
         let cleared = network.collect_cleared_orders(gossip);
         let not_cleared = |o: &&Order| !cleared.contains(o);
 

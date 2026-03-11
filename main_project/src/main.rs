@@ -1,3 +1,6 @@
+//! Entry point. Initialises hardware, network, and request assigner,
+//! then drives the main control loop.
+
 mod config;
 mod fsm;
 pub mod types;
@@ -6,6 +9,7 @@ mod requests;
 
 use std::sync::Arc;
 use types::*;
+use crate::fsm::ElevatorGuard;
 use tokio::time::Duration;
 
 fn elevator_addr() -> String {
@@ -32,7 +36,7 @@ async fn main() {
     let addr = elevator_addr();
     println!("Connecting to elevator simulator at {}", addr);
 
-    let fsm = Arc::new(ElevatorFSM::new(&addr).await);
+    let fsm = Arc::new(ElevatorGuard::new(&addr).await);
     let mut network = Network::new().await;
     let mut assigner = RequestAssigner::new(network.id().to_string());
 
@@ -55,7 +59,7 @@ async fn main() {
         let gossip = network.collect_gossip().await;
 
         assigner.clear_completed_orders_from_gossip(&gossip, &mut network);
-        assigner.elect_master(gossip.clone(), &mut network).await;
+        assigner.run_election(gossip.clone(), &mut network).await;
 
         while let Ok(orders) = button_rx.try_recv() {
             for order in orders { network.add_order(order); }
@@ -69,8 +73,8 @@ async fn main() {
         network.merge_gossip_orders(&gossip);
 
         match assigner.role {
-            Roles::Master => assigner.master(&gossip, &mut network, fsm.clone()).await,
-            Roles::Slave  => assigner.slave(&gossip, &mut network, fsm.clone()).await,
+            Roles::Master => assigner.run_as_master(&gossip, &mut network, fsm.clone()).await,
+            Roles::Slave  => assigner.run_as_slave(&gossip, &mut network, fsm.clone()).await,
         }
 
         network.tick_cleared_order();
