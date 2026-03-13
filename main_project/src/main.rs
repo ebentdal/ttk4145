@@ -67,6 +67,8 @@ async fn main() {
 
         network.merge_gossip_orders(&gossip);
 
+        fsm.set_button_light(&network.state.hall_orders, &network.state.cab_orders).await;
+
         match assigner.role {
             Roles::Master => assigner.run_as_master(&gossip, &mut network, fsm.clone()).await,
             Roles::Slave  => assigner.run_as_slave(&gossip, &mut network, fsm.clone()).await,
