@@ -1,8 +1,3 @@
-//! Order assignment and master/slave role management.
-//!
-//! `RequestAssigner` runs a leader election (lowest IP = master) and delegates
-//! hall-call assignment to the external `hall_request_assigner` binary.
-
 use std::{collections::HashMap, net::IpAddr, str::FromStr, process::Stdio, sync::Arc};
 use tokio::{process::Command, time::Instant};
 use crate::types::*;
@@ -26,8 +21,6 @@ impl RequestAssigner {
         }
     }
 
-    /// Run the external hall_request_assigner binary and parse its output into
-    /// a map from elevator ID to assigned orders.
     async fn assign_hall_orders(&self) -> HashMap<String, Vec<Order>> {
         let json_str = serde_json::to_string_pretty(&self.message).unwrap();
         println!("[ASSIGNER] Input: {}", json_str);
@@ -35,7 +28,7 @@ impl RequestAssigner {
         let child = Command::new("./hall_request_assigner")
             .arg("--input")
             .arg(&json_str)
-            .arg("--includeCab") // include cab requests so output has 3 columns per floor
+            .arg("--includeCab") 
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -57,7 +50,6 @@ impl RequestAssigner {
 
         let assignments = raw.into_iter().map(|(id, per_floor)| {
             let orders = per_floor.iter().enumerate().flat_map(|(floor, cols)| {
-                // Column order from hall_request_assigner with --includeCab: [0]=HallUp, [1]=HallDown, [2]=CabCall
                 [
                     (cols.get(0), ButtonType::HallUp),
                     (cols.get(1), ButtonType::HallDown),
@@ -75,9 +67,6 @@ impl RequestAssigner {
         assignments
     }
 
-
-    /// Build the Message struct that will be fed into the hall_request_assigner binary.
-    /// Populates elevator states from our own state and all live cached peers.
     fn build_cost_input(&mut self, own_state: &GossipMsg) {
         let num_floors = config::NUM_FLOORS as usize;
 
@@ -87,7 +76,6 @@ impl RequestAssigner {
         self.add_elevator_state(own_state, num_floors);
         self.add_hall_requests_from_peer(own_state, num_floors);
 
-        // Clone to avoid borrow conflict with self.cached_peers and self.message
         let gossip: Vec<GossipMsg> = self.cached_peers
             .values()
             .filter(|p| p.id != self.id)
@@ -131,9 +119,6 @@ impl RequestAssigner {
         }
     }
 
-
-    /// On startup: restore our own cab orders from peers who still hold our pre-crash state.
-    /// Listens for up to 2 seconds or until receiving at least one gossip message.
     pub async fn recover_cab_orders_from_gossip(&self, network: &mut Network) {
         let my_id = network.id().to_string();
         let mut rx = network.incoming.subscribe();
@@ -156,11 +141,10 @@ impl RequestAssigner {
                             }
                         }
                     }
-                    // Exit after receiving first gossip message
                     break;
                 }
-                Ok(Err(_)) => break, // Channel error
-                Err(_) => break,     // Timeout
+                Ok(Err(_)) => break, 
+                Err(_) => break,    
                 _ => {}
             }
         }
@@ -172,9 +156,6 @@ impl RequestAssigner {
         }
     }
 
-
-    /// Elect a role: the peer with the lowest IP becomes master, all others become slave.
-    /// Removes timed-out peers and triggers reassignment of their orders.
     pub async fn run_election(&mut self, gossip: Vec<GossipMsg>, network: &mut Network) {
         let now = Instant::now();
 
@@ -183,10 +164,7 @@ impl RequestAssigner {
             self.last_seen.insert(peer.id.clone(), now);
             self.cached_peers.insert(peer.id.clone(), peer.clone());
         }
-
         let ttl = self.peer_ttl;
-
-        // Clear assignments for timed-out peers so their orders get reassigned
         let timed_out: Vec<String> = self.last_seen
             .iter()
             .filter(|(_, t)| now.duration_since(**t) > ttl)
@@ -218,8 +196,6 @@ impl RequestAssigner {
         network.state.role = new_role;
     }
 
-
-    /// Remove completed orders from cached peers and assignment maps so they are not re-assigned.
     fn remove_cleared_from_tracking(&mut self, gossip: &[GossipMsg], network: &mut Network) {
         let all_cleared: Vec<Order> = std::iter::once(&network.state)
             .chain(gossip.iter())
@@ -239,8 +215,6 @@ impl RequestAssigner {
         }
     }
 
-    /// Zero out already-assigned hall slots so the cost function only sees NEW requests.
-    /// Prevents reassigning an order that is already in progress.
     fn mask_assigned_orders(&mut self) {
         for order in self.last_published_assignments.values().flatten() {
             let floor = order.floor as usize;
@@ -254,15 +228,9 @@ impl RequestAssigner {
         }
     }
 
-    /// Run one master-role cycle: assign hall orders and enqueue this elevator's orders.
     pub async fn run_as_master(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorGuard>) {
-        // Remove completed orders from master-specific tracking structures.
-        // (hall_orders / cab_orders on network.state are already cleared by
-        //  clear_completed_orders_from_gossip and order_completed before we get here.)
         self.remove_cleared_from_tracking(gossip, network);
-
         self.build_cost_input(&network.state);
-
         self.mask_assigned_orders();
 
         println!("[MASTER] peers: {} | unassigned hall_requests: {:?}",
@@ -275,7 +243,6 @@ impl RequestAssigner {
             HashMap::new()
         };
 
-        // Merge new assignments on top of existing ones
         let mut merged = self.last_published_assignments.clone();
         for (id, orders) in new_assignments {
             let entry = merged.entry(id).or_default();
@@ -303,8 +270,6 @@ impl RequestAssigner {
         fsm.set_button_light(&network.state.hall_orders, &network.state.cab_orders).await;
     }
 
-
-    /// Run one slave-role cycle: retrieve assignments from master and enqueue them.
     pub async fn run_as_slave(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorGuard>) {
         let cleared = network.collect_cleared_orders(gossip);
         let not_cleared = |o: &&Order| !cleared.contains(o);
@@ -326,15 +291,11 @@ impl RequestAssigner {
             let cab:  Vec<Order> = network.state.cab_orders.iter().filter(not_cleared).cloned().collect();
             fsm.set_button_light(&hall, &cab).await;
         } else {
-            // No master visible — serve our own cab orders at minimum
             fsm.set_queue(&network.state.cab_orders).await;
             println!("[SLAVE] No master found in peer list");
         }
     }
 
-
-    /// Clear orders that any peer has marked as completed.
-    /// Hall orders are cleared globally; cab orders only if it's our own elevator's completion.
     pub fn clear_completed_orders_from_gossip(&mut self, gossip: &[GossipMsg], network: &mut Network) {
         let my_id = &network.state.id.clone();
 

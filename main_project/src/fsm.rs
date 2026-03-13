@@ -1,8 +1,3 @@
-//! Elevator hardware control and order-processing FSM.
-//!
-//! `ElevatorGuard` is the public interface. It owns the physical driver,
-//! tracks current floor/direction/behaviour, and runs orders from a shared queue.
-
 use driver_rust::elevio::elev::Elevator;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -16,7 +11,6 @@ use strum::IntoEnumIterator;
 
 
 impl ElevatorGuard {
-    /// Initialize hardware: drive down until a known floor is found, then stop.
     pub async fn new(addr: &str) -> Self {
         let driver = Elevator::init(addr, NUM_FLOORS).expect("Failed to connect to elevator simulator");
         Elevator::motor_direction(&driver, Direction::Down as u8);
@@ -49,9 +43,6 @@ impl ElevatorGuard {
         }
     }
 
-    // --- Private hardware helpers ---
-
-    /// Read the floor sensor and update floor indicator if a new floor is detected.
     fn read_floor(state: &mut ElevatorFSM) {
         if let Some(floor) = Elevator::floor_sensor(&state.driver) {
             state.floor = floor;
@@ -59,7 +50,6 @@ impl ElevatorGuard {
         }
     }
 
-    /// Stop the motor and mark the elevator as idle with no active order.
     fn stop(state: &mut ElevatorFSM) {
         state.direction = Direction::Stop;
         state.behaviour = Behaviour::Idle;
@@ -67,7 +57,6 @@ impl ElevatorGuard {
         Elevator::motor_direction(&state.driver, Direction::Stop as u8);
     }
 
-    /// Start moving toward `target`, recording which queued order is being served.
     fn move_toward(state: &mut ElevatorFSM, target: u8, queue: &[Order]) {
         state.behaviour = Behaviour::Moving;
         state.serving   = None;
@@ -81,13 +70,10 @@ impl ElevatorGuard {
         Elevator::motor_direction(&state.driver, state.direction as u8);
     }
 
-    /// Stop at the current floor and remove the matching order from the queue.
-    /// Returns the served order, or None if no direction-compatible order exists here.
     fn serve_order(state: &mut ElevatorFSM, queue: &mut Vec<Order>) -> Option<Order> {
         let travel_dir = state.direction;
         Elevator::motor_direction(&state.driver, Direction::Stop as u8);
 
-        // Find an order at the current floor compatible with travel direction
         let mut pos: Option<usize> = None;
         for (i, order) in queue.iter().enumerate() {
             if order.floor != state.floor { continue; }
@@ -107,7 +93,6 @@ impl ElevatorGuard {
         let served = queue.remove(pos);
         state.serving = None;
 
-        // Keep travel direction if orders remain ahead; otherwise stop.
         let mut has_orders_ahead = false;
         for order in queue.iter() {
             let ahead = match travel_dir {
@@ -122,8 +107,6 @@ impl ElevatorGuard {
         Some(served)
     }
 
-    /// SCAN-like next target: nearest order ahead in current direction,
-    /// falls back to the closest order if none are direction-compatible.
     fn next_target(queue: &[Order], floor: u8, direction: Direction) -> u8 {
         let mut best_floor: Option<u8> = None;
 
@@ -152,9 +135,6 @@ impl ElevatorGuard {
 
         if let Some(f) = best_floor { return f; }
 
-        // Fallback: if we're already moving, continue in that direction to
-        // reduce unnecessary back-and-forth (e.g., 3↓ and 2↓ while at floor 0).
-        // Otherwise (stopped), choose the closest order.
         match direction {
             Direction::Up => queue.iter().map(|o| o.floor).max().unwrap_or(floor),
             Direction::Down => queue.iter().map(|o| o.floor).min().unwrap_or(floor),
@@ -173,10 +153,6 @@ impl ElevatorGuard {
         }
     }
 
-    // --- Public async API ---
-
-    /// Drive toward the next queued order, serving it when we arrive.
-    /// Returns Completed(order), Empty (queue was empty), or Failed (timeout).
     pub async fn process_next_order(&self) -> OrderResult {
         let order_start = std::time::Instant::now();
         loop {
@@ -204,11 +180,9 @@ impl ElevatorGuard {
                 continue;
             }
 
-            // At target floor — attempt to serve an order.
             let served = match Self::serve_order(&mut state, &mut queue) {
                 Some(order) => order,
                 None => {
-                    // No direction-compatible order here; reset so next pick is closest.
                     state.direction = Direction::Stop;
                     continue;
                 }
@@ -227,14 +201,11 @@ impl ElevatorGuard {
         }
     }
 
-    /// Returns the current floor, direction, and behaviour for broadcasting.
     pub async fn get_state(&self) -> (u8, Direction, Behaviour) {
         let state = self.state.lock().await;
         (state.floor, state.direction, state.behaviour)
     }
 
-    /// Open the door for 3 seconds, then wait for obstruction to clear.
-    /// Returns false if the obstruction timeout is exceeded (triggers a restart).
     async fn open_door_and_wait(&self) -> bool {
         {
             let mut state = self.state.lock().await;
@@ -259,7 +230,7 @@ impl ElevatorGuard {
         }
     }
 
-    /// Replace the queue with new orders, preserving any order currently being served.
+
     pub async fn set_queue(&self, orders: &[Order]) {
         let serving = self.state.lock().await.serving.clone();
 
@@ -276,14 +247,12 @@ impl ElevatorGuard {
         }
     }
 
-    /// Read all currently pressed buttons and return them as orders.
     pub async fn poll_buttons(&self) -> Vec<Order> {
         let state = self.state.lock().await;
         let mut pressed = Vec::new();
         for floor in 0..NUM_FLOORS {
             for button in ButtonType::iter() {
                 if Elevator::call_button(&state.driver, floor, button as u8) {
-                    // Don't accept cab calls for the current floor if moving away
                     if matches!(button, ButtonType::CabCall) && floor == state.floor && state.direction != Direction::Stop {
                         continue;
                     }
@@ -294,7 +263,6 @@ impl ElevatorGuard {
         pressed
     }
 
-    /// Update all button lights to reflect the current set of active orders.
     pub async fn set_button_light(&self, hall_orders: &[Order], cab_orders: &[Order]) {
         let state = self.state.lock().await;
         for floor in 0..NUM_FLOORS {
@@ -311,8 +279,6 @@ impl ElevatorGuard {
         }
     }
 
-    /// Spawn order-runner and button-poller background tasks.
-    /// Returns (completed_orders, button_presses, failure_signal) receivers.
     pub fn spawn_tasks(self: Arc<Self>) -> (
         tokio::sync::mpsc::UnboundedReceiver<Order>,
         tokio::sync::mpsc::UnboundedReceiver<Vec<Order>>,
@@ -348,7 +314,6 @@ impl ElevatorGuard {
         (completed_rx, button_rx, fail_rx)
     }
 
-    /// Cut motor power immediately. Used before restarting on failure.
     pub async fn emergency_stop(&self) {
         let state = self.state.lock().await;
         Elevator::motor_direction(&state.driver, Direction::Stop as u8);

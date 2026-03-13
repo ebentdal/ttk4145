@@ -1,8 +1,3 @@
-//! UDP broadcast network layer.
-//!
-//! `Network` broadcasts this elevator's state every tick and collects
-//! state messages from peers via a crossbeam↔tokio channel bridge.
-
 use network_rust::udpnet;
 use std::{collections::HashMap, net::TcpStream};
 use crossbeam_channel as cbc;
@@ -39,9 +34,6 @@ impl Network {
         Self { state, incoming, udp_tx, cleared_at: None }
     }
 
-
-    /// Sets up the crossbeam ↔ tokio bridge for UDP broadcast send/receive.
-    /// Returns a broadcast Sender (subscribe to receive) and a crossbeam Sender (to transmit).
     async fn start_channels() -> (broadcast::Sender<GossipMsg>, cbc::Sender<GossipMsg>) {
         let (udp_send_tx, udp_send_rx) = cbc::unbounded::<GossipMsg>();
         let (udp_recv_tx, udp_recv_rx) = cbc::unbounded::<GossipMsg>();
@@ -64,9 +56,6 @@ impl Network {
             }
         });
 
-        // Relay received UDP messages into a tokio broadcast channel so async
-        // tasks can subscribe without blocking on crossbeam.
-        // 512 slots: peers broadcast at ~10 Hz; this buffers ~5 s of messages before dropping.
         let (relay_tx, _) = broadcast::channel::<GossipMsg>(512);
         let relay_tx_clone = relay_tx.clone();
         std::thread::spawn(move || {
@@ -84,8 +73,6 @@ impl Network {
         (relay_tx, udp_send_tx)
     }
 
-
-    /// Broadcast our current state to all peers.
     pub async fn broadcast_state(&self) {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         self.udp_tx.send(self.state.clone()).expect("UDP TX channel closed unexpectedly");
@@ -93,7 +80,6 @@ impl Network {
     }
 
 
-    /// Collect the latest state from each peer (50 ms window, deduped by counter).
     pub async fn collect_gossip(&self) -> Vec<GossipMsg> {
         let mut by_id: HashMap<String, GossipMsg> = HashMap::new();
         let mut rx = self.incoming.subscribe();
@@ -119,8 +105,6 @@ impl Network {
         &self.state.id
     }
 
-
-    /// Collect all recently-cleared orders from self and peers (used to suppress re-adding).
     pub fn collect_cleared_orders(&self, gossip: &[GossipMsg]) -> Vec<Order> {
         let mut result = Vec::new();
         for p in std::iter::once(&self.state).chain(gossip.iter()) {
@@ -133,8 +117,6 @@ impl Network {
         result
     }
 
-
-    /// Mark an order as completed: remove it from our lists and broadcast the clearance.
     pub fn order_completed(&mut self, order: Order) {
         self.state.hall_orders.retain(|o| o != &order);
         self.state.cab_orders.retain(|o| o != &order);
@@ -146,16 +128,12 @@ impl Network {
         self.cleared_at = Some(tokio::time::Instant::now() + tokio::time::Duration::from_secs(1));
     }
 
-
-    /// Sync our broadcast state with the current FSM floor/direction/behaviour.
     pub fn update_state(&mut self, (floor, direction, behaviour): (u8, Direction, Behaviour)) {
         self.state.floor = floor;
         self.state.direction = direction;
         self.state.behaviour = behaviour;
     }
 
-
-    /// Add a newly pressed button to the correct order list (deduped, bumps counter).
     pub fn add_order(&mut self, order: Order) {
         let target = match order.order_type {
             ButtonType::CabCall => &mut self.state.cab_orders,
@@ -167,13 +145,8 @@ impl Network {
         }
     }
 
-
-    /// Merge hall and cab orders from all peers into our own state.
-    /// Skips orders that any peer (or ourselves) has recently cleared.
     pub fn merge_gossip_orders(&mut self, gossip: &[GossipMsg]) {
         let cleared = self.collect_cleared_orders(gossip);
-
-        // Aggregate hall orders from all peers (ensures orders survive master failover)
         for peer in gossip {
             for order in &peer.hall_orders {
                 if !cleared.contains(order) && !self.state.hall_orders.contains(order) {
@@ -182,8 +155,6 @@ impl Network {
             }
         }
 
-        // Publish our own cabs into the shared map, then merge each peer's cabs.
-        // We own our own entry; peers must not overwrite it.
         let my_id = self.state.id.clone();
         self.state.peer_cab_orders.insert(my_id.clone(), self.state.cab_orders.clone());
         for peer in gossip {
@@ -199,9 +170,6 @@ impl Network {
         }
     }
 
-
-    /// Stop broadcasting a cleared_order after its 1-second window expires.
-    /// Call once per main loop tick.
     pub fn tick_cleared_order(&mut self) {
         if let Some(expire_at) = self.cleared_at {
             if tokio::time::Instant::now() >= expire_at {

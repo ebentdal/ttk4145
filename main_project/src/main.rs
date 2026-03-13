@@ -1,6 +1,3 @@
-//! Entry point. Initialises hardware, network, and request assigner,
-//! then drives the main control loop.
-
 mod config;
 mod fsm;
 pub mod types;
@@ -40,8 +37,6 @@ async fn main() {
     let mut network = Network::new().await;
     let mut assigner = RequestAssigner::new(network.id().to_string());
 
-    // Cab order recovery: listen for up to 2 seconds or until first heartbeat
-    // before broadcasting our own state, so peers still hold our pre-crash cab orders.
     assigner.recover_cab_orders_from_gossip(&mut network).await;
 
     let (mut completed_rx, mut button_rx, mut fail_rx) = fsm.clone().spawn_tasks();

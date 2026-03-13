@@ -1,5 +1,3 @@
-//! Shared types used across all modules.
-
 use crossbeam_channel::Sender;
 use driver_rust::elevio::elev::{Elevator, DIRN_DOWN, DIRN_STOP, DIRN_UP};
 use tokio::sync::Mutex;
@@ -9,9 +7,6 @@ use tokio::time::{Duration, Instant};
 use strum_macros::EnumIter;
 
 
-// --- FSM types ---
-
-/// Physical elevator state: hardware driver plus current floor/direction/behaviour.
 pub struct ElevatorFSM {
     pub driver:    Elevator,
     pub floor:     u8,
@@ -20,7 +15,6 @@ pub struct ElevatorFSM {
     pub serving:   Option<Order>,
 }
 
-/// Public handle to the elevator. Owns the hardware state and order queue.
 pub struct ElevatorGuard {
     pub(crate) state: Mutex<ElevatorFSM>,
     pub(crate) queue: Mutex<Vec<Order>>,
@@ -45,8 +39,6 @@ pub enum ButtonType {
     HallUp   = 0,
     HallDown = 1,
 }
-
-// --- Shared types ---
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Roles {
@@ -74,9 +66,6 @@ pub enum Direction {
 }
 
 
-// --- Network types ---
-
-/// The state message broadcast to all peers each network tick.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GossipMsg {
     pub id: String,
@@ -88,27 +77,19 @@ pub struct GossipMsg {
     pub counter: i32,
     pub role: Roles,
     pub assignments: HashMap<String, Vec<Order>>,
-    /// Each elevator's cab orders, gossiped across peers for crash recovery.
     pub peer_cab_orders: HashMap<String, Vec<Order>>,
     #[serde(rename = "clearedOrder")]
     pub cleared_order: Option<Order>,
 }
 
-/// Manages UDP broadcast communication with peers.
 pub struct Network {
-    /// Our own state, broadcast to peers every tick.
     pub state: GossipMsg,
-    /// Subscribe to this channel to receive messages from other peers.
     pub incoming: tokio::sync::broadcast::Sender<GossipMsg>,
     pub udp_tx: Sender<GossipMsg>,
-    /// When to stop broadcasting a cleared_order (1 s after completion).
     pub cleared_at: Option<Instant>,
 }
 
 
-// --- Request assigner types ---
-
-/// Input to the external hall_request_assigner binary.
 #[derive(Serialize)]
 pub struct Message {
     #[serde(rename = "hallRequests")]
@@ -116,7 +97,6 @@ pub struct Message {
     pub states: HashMap<String, AssignmentState>,
 }
 
-/// Per-elevator state sent to the hall_request_assigner binary.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AssignmentState {
     pub behaviour: Behaviour,
@@ -132,7 +112,6 @@ pub struct RequestAssigner {
     pub role: Roles,
     pub last_published_assignments: HashMap<String, Vec<Order>>,
     pub last_seen: HashMap<String, Instant>,
-    /// Most recently received state for each live peer.
     pub cached_peers: HashMap<String, GossipMsg>,
     pub peer_ttl: Duration,
 }
