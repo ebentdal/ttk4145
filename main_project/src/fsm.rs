@@ -41,6 +41,8 @@ impl ElevatorGuard {
                         direction: Direction::Stop,
                         behaviour: Behaviour::Idle,
                         serving:   None,
+                        last_served_cab_floor: None,
+                        skip_door_open: false,
                     }),
                     queue: Mutex::new(Vec::new()),
                 };
@@ -54,8 +56,14 @@ impl ElevatorGuard {
     /// Read the floor sensor and update floor indicator if a new floor is detected.
     fn read_floor(state: &mut ElevatorFSM) {
         if let Some(floor) = Elevator::floor_sensor(&state.driver) {
-            state.floor = floor;
-            Elevator::floor_indicator(&state.driver, floor);
+            if floor != state.floor {
+                // Clear last served cab floor when moving away
+                if state.last_served_cab_floor.is_some() {
+                    state.last_served_cab_floor = None;
+                }
+                state.floor = floor;
+                Elevator::floor_indicator(&state.driver, floor);
+            }
         }
     }
 
@@ -106,6 +114,15 @@ impl ElevatorGuard {
 
         let served = queue.remove(pos);
         state.serving = None;
+
+        // Remember last served cab floor for button lighting
+        if matches!(served.order_type, ButtonType::CabCall) {
+            state.last_served_cab_floor = Some(state.floor);
+            // Skip door open if serving cab on the last served floor
+            state.skip_door_open = true;
+        } else {
+            state.skip_door_open = false;
+        }
 
         // Keep travel direction if orders remain ahead; otherwise stop.
         let mut has_orders_ahead = false;
@@ -217,10 +234,15 @@ impl ElevatorGuard {
             let remaining: Vec<u8> = queue.iter().map(|o| o.floor).collect();
             println!("[FSM] Served f{} {:?} | remaining: {:?}", served.floor, served.order_type, remaining);
 
+            let skip = state.skip_door_open;
+            state.skip_door_open = false;
+
             drop(queue);
             drop(state);
-            if !self.open_door_and_wait().await {
-                return OrderResult::Failed;
+            if !skip {
+                if !self.open_door_and_wait().await {
+                    return OrderResult::Failed;
+                }
             }
 
             return OrderResult::Completed(served);
@@ -301,6 +323,10 @@ impl ElevatorGuard {
                         active = true;
                         break;
                     }
+                }
+                // Don't light cab buttons for the last served cab floor
+                if matches!(button, ButtonType::CabCall) && Some(floor) == state.last_served_cab_floor {
+                    active = false;
                 }
                 Elevator::call_button_light(&state.driver, floor, button as u8, active);
             }

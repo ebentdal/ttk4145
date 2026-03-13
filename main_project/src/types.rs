@@ -18,6 +18,10 @@ pub struct ElevatorFSM {
     pub direction: Direction,
     pub behaviour: Behaviour,
     pub serving:   Option<Order>,
+
+    pub last_served_cab_floor: Option<u8>,
+    /// Skip opening the door for the next service if set.
+    pub skip_door_open: bool,
 }
 
 /// Public handle to the elevator. Owns the hardware state and order queue.
