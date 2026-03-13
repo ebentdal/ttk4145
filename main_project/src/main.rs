@@ -33,13 +33,14 @@ async fn main() {
     let addr = elevator_addr();
     println!("Connecting to elevator simulator at {}", addr);
 
-    let fsm = Arc::new(ElevatorGuard::new(&addr).await);
+    let (completed_tx, mut completed_rx) = tokio::sync::mpsc::unbounded_channel::<Order>();
+    let fsm = Arc::new(ElevatorGuard::new(&addr, completed_tx).await);
     let mut network = Network::new().await;
     let mut assigner = RequestAssigner::new(network.id().to_string());
 
     assigner.recover_cab_orders_from_gossip(&mut network).await;
 
-    let (mut completed_rx, mut button_rx, mut fail_rx) = fsm.clone().spawn_tasks();
+    let (mut button_rx, mut fail_rx) = fsm.clone().spawn_tasks();
 
     loop {
         if fail_rx.try_recv().is_ok() {

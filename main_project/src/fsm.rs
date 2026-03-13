@@ -11,7 +11,7 @@ use strum::IntoEnumIterator;
 
 
 impl ElevatorGuard {
-    pub async fn new(addr: &str) -> Self {
+    pub async fn new(addr: &str, completed_tx: tokio::sync::mpsc::UnboundedSender<Order>) -> Self {
         let driver = Elevator::init(addr, NUM_FLOORS).expect("Failed to connect to elevator simulator");
         Elevator::motor_direction(&driver, Direction::Down as u8);
         loop {
@@ -37,6 +37,7 @@ impl ElevatorGuard {
                         serving:   None,
                     }),
                     queue: Mutex::new(Vec::new()),
+                    completed_tx,
                 };
             }
             sleep(INIT_FLOOR_POLL_INTERVAL).await;
@@ -191,6 +192,8 @@ impl ElevatorGuard {
             let remaining: Vec<u8> = queue.iter().map(|o| o.floor).collect();
             println!("[FSM] Served f{} {:?} | remaining: {:?}", served.floor, served.order_type, remaining);
 
+            self.completed_tx.send(served.clone()).unwrap();
+
             drop(queue);
             drop(state);
             if !self.open_door_and_wait().await {
@@ -280,7 +283,6 @@ impl ElevatorGuard {
     }
 
     pub fn spawn_tasks(self: Arc<Self>) -> (
-        tokio::sync::mpsc::UnboundedReceiver<Order>,
         tokio::sync::mpsc::UnboundedReceiver<Vec<Order>>,
         tokio::sync::mpsc::UnboundedReceiver<()>,
     ) {
@@ -294,9 +296,9 @@ impl ElevatorGuard {
             async move {
                 loop {
                     match elev.process_next_order().await {
-                        OrderResult::Completed(order) => { let _ = completed_tx.send(order); }
-                        OrderResult::Failed           => { let _ = fail_tx.send(()); return; }
-                        OrderResult::Empty            => {}
+                        OrderResult::Completed(_) => {}
+                        OrderResult::Failed       => { let _ = fail_tx.send(()); return; }
+                        OrderResult::Empty        => {}
                     }
                     sleep(TASK_POLL_INTERVAL).await;
                 }
@@ -311,7 +313,7 @@ impl ElevatorGuard {
             }
         });
 
-        (completed_rx, button_rx, fail_rx)
+        (button_rx, fail_rx)
     }
 
     pub async fn emergency_stop(&self) {
