@@ -18,9 +18,6 @@ pub struct ElevatorFSM {
     pub direction: Direction,
     pub behaviour: Behaviour,
     pub serving:   Option<Order>,
-    /// After serving a hall order, remember its floor and direction so we
-    /// don't immediately clear the opposite direction order on the same stop.
-    pub last_served_hall: Option<(u8, ButtonType)>,
 }
 
 /// Public handle to the elevator. Owns the hardware state and order queue.

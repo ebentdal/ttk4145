@@ -41,7 +41,6 @@ impl ElevatorGuard {
                         direction: Direction::Stop,
                         behaviour: Behaviour::Idle,
                         serving:   None,
-                        last_served_hall: None,
                     }),
                     queue: Mutex::new(Vec::new()),
                 };
@@ -55,10 +54,6 @@ impl ElevatorGuard {
     /// Read the floor sensor and update floor indicator if a new floor is detected.
     fn read_floor(state: &mut ElevatorFSM) {
         if let Some(floor) = Elevator::floor_sensor(&state.driver) {
-            if floor != state.floor {
-                // Leaving a floor clears the last served hall order lock.
-                state.last_served_hall = None;
-            }
             state.floor = floor;
             Elevator::floor_indicator(&state.driver, floor);
         }
@@ -92,36 +87,14 @@ impl ElevatorGuard {
         let travel_dir = state.direction;
         Elevator::motor_direction(&state.driver, Direction::Stop as u8);
 
-        // Find an order at the current floor compatible with travel direction.
-        // When we just arrived to serve a hall order, do not immediately serve
-        // the opposite hall direction at that same stop.
+        // Find an order at the current floor compatible with travel direction
         let mut pos: Option<usize> = None;
         for (i, order) in queue.iter().enumerate() {
             if order.floor != state.floor { continue; }
-
             let compatible = match travel_dir {
                 Direction::Up   => order.order_type != ButtonType::HallDown,
                 Direction::Down => order.order_type != ButtonType::HallUp,
-                Direction::Stop => {
-                    if let Some((served_floor, served_btn)) = state.last_served_hall {
-                        if served_floor == state.floor {
-                            let opposite = match served_btn {
-                                ButtonType::HallUp => ButtonType::HallDown,
-                                ButtonType::HallDown => ButtonType::HallUp,
-                                _ => ButtonType::CabCall,
-                            };
-                            if order.order_type == opposite {
-                                false
-                            } else {
-                                true
-                            }
-                        } else {
-                            true
-                        }
-                    } else {
-                        true
-                    }
-                }
+                Direction::Stop => true,
             };
             if compatible { pos = Some(i); break; }
         }
@@ -133,13 +106,6 @@ impl ElevatorGuard {
 
         let served = queue.remove(pos);
         state.serving = None;
-
-        // Remember what we just served so we don't clear the opposite hall direction
-        // during the same stop.
-        state.last_served_hall = match served.order_type {
-            ButtonType::HallUp | ButtonType::HallDown => Some((state.floor, served.order_type)),
-            _ => None,
-        };
 
         // Keep travel direction if orders remain ahead; otherwise stop.
         let mut has_orders_ahead = false;
