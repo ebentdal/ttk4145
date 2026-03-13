@@ -18,7 +18,6 @@ pub struct ElevatorFSM {
 pub struct ElevatorGuard {
     pub(crate) state: Mutex<ElevatorFSM>,
     pub(crate) queue: Mutex<Vec<Order>>,
-    pub(crate) completed_tx: tokio::sync::mpsc::UnboundedSender<Order>,
 }
 
 pub enum OrderResult {
