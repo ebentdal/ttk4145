@@ -152,17 +152,25 @@ impl ElevatorGuard {
 
         if let Some(f) = best_floor { return f; }
 
-        // Fallback: closest order regardless of direction
-        let mut closest_floor: Option<u8> = None;
-        for order in queue {
-            let d = (order.floor as i16 - floor as i16).abs();
-            let better = match closest_floor {
-                None       => true,
-                Some(prev) => d < (prev as i16 - floor as i16).abs(),
-            };
-            if better { closest_floor = Some(order.floor); }
+        // Fallback: if we're already moving, continue in that direction to
+        // reduce unnecessary back-and-forth (e.g., 3↓ and 2↓ while at floor 0).
+        // Otherwise (stopped), choose the closest order.
+        match direction {
+            Direction::Up => queue.iter().map(|o| o.floor).max().unwrap_or(floor),
+            Direction::Down => queue.iter().map(|o| o.floor).min().unwrap_or(floor),
+            Direction::Stop => {
+                let mut closest_floor: Option<u8> = None;
+                for order in queue {
+                    let d = (order.floor as i16 - floor as i16).abs();
+                    let better = match closest_floor {
+                        None       => true,
+                        Some(prev) => d < (prev as i16 - floor as i16).abs(),
+                    };
+                    if better { closest_floor = Some(order.floor); }
+                }
+                closest_floor.unwrap_or(floor)
+            }
         }
-        closest_floor.unwrap_or(floor)
     }
 
     // --- Public async API ---

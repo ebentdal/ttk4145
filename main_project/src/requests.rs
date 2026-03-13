@@ -268,8 +268,11 @@ impl RequestAssigner {
         println!("[MASTER] peers: {} | unassigned hall_requests: {:?}",
             self.cached_peers.len(), self.message.hall_requests);
 
-        let has_new_hall_orders = self.message.hall_requests.iter().any(|r| r[0] || r[1]);
-        let new_assignments = if has_new_hall_orders {
+        // Always re-run assignment while there are any outstanding hall calls.
+        // This ensures a newly-reconnected elevator can receive orders even if
+        // the assignments were already computed before it came back online.
+        let has_hall_orders = !network.state.hall_orders.is_empty();
+        let new_assignments = if has_hall_orders {
             self.assign_hall_orders().await
         } else {
             HashMap::new()
