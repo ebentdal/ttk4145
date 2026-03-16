@@ -16,7 +16,7 @@ impl Network {
             .ip();
 
         let (incoming, udp_tx) = Self::start_channels().await;
-        let state = GossipMsg {
+        let gossip_msg = GossipMsg {
             id: local_ip.to_string(),
             hall_orders: Vec::new(),
             cab_orders: Vec::new(),
@@ -30,7 +30,7 @@ impl Network {
             cleared_order: None,
         };
 
-        Self { state, incoming, udp_tx, cleared_at: None }
+        Self { gossip_msg, incoming, udp_tx, cleared_at: None }
     }
 
     async fn start_channels() -> (broadcast::Sender<GossipMsg>, cbc::Sender<GossipMsg>) {
@@ -73,7 +73,7 @@ impl Network {
 
     pub async fn broadcast_state(&self) {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-        self.udp_tx.send(self.state.clone()).expect("UDP TX channel closed unexpectedly");
+        self.udp_tx.send(self.gossip_msg.clone()).expect("UDP TX channel closed unexpectedly");
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 
@@ -85,7 +85,7 @@ impl Network {
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
         while std::time::Instant::now() < deadline {
             match tokio::time::timeout(std::time::Duration::from_millis(10), rx.recv()).await {
-                Ok(Ok(msg)) if msg.id != self.state.id => {
+                Ok(Ok(msg)) if msg.id != self.gossip_msg.id => {
                     let better = by_id.get(&msg.id).map_or(true, |e| msg.counter > e.counter);
                     if better {
                         by_id.insert(msg.id.clone(), msg);
@@ -100,12 +100,12 @@ impl Network {
 
 
     pub fn id(&self) -> &str {
-        &self.state.id
+        &self.gossip_msg.id
     }
 
     pub fn collect_cleared_orders(&self, gossip: &[GossipMsg]) -> Vec<Order> {
         let mut result = Vec::new();
-        for p in std::iter::once(&self.state).chain(gossip.iter()) {
+        for p in std::iter::once(&self.gossip_msg).chain(gossip.iter()) {
             if let Some(o) = &p.cleared_order {
                 if !result.contains(o) {
                     result.push(o.clone());
@@ -116,30 +116,30 @@ impl Network {
     }
 
     pub fn order_completed(&mut self, order: Order) {
-        self.state.hall_orders.retain(|o| o != &order);
-        self.state.cab_orders.retain(|o| o != &order);
-        for cabs in self.state.peer_cab_orders.values_mut() {
+        self.gossip_msg.hall_orders.retain(|o| o != &order);
+        self.gossip_msg.cab_orders.retain(|o| o != &order);
+        for cabs in self.gossip_msg.peer_cab_orders.values_mut() {
             cabs.retain(|o| o != &order);
         }
-        self.state.cleared_order = Some(order);
-        self.state.counter += 1;
+        self.gossip_msg.cleared_order = Some(order);
+        self.gossip_msg.counter += 1;
         self.cleared_at = Some(tokio::time::Instant::now() + tokio::time::Duration::from_secs(1));
     }
 
     pub fn update_state(&mut self, (floor, direction, behaviour): (u8, Direction, Behaviour)) {
-        self.state.floor = floor;
-        self.state.direction = direction;
-        self.state.behaviour = behaviour;
+        self.gossip_msg.floor = floor;
+        self.gossip_msg.direction = direction;
+        self.gossip_msg.behaviour = behaviour;
     }
 
     pub fn add_order(&mut self, order: Order) {
         let target = match order.order_type {
-            ButtonType::CabCall => &mut self.state.cab_orders,
-            _                   => &mut self.state.hall_orders,
+            ButtonType::CabCall => &mut self.gossip_msg.cab_orders,
+            _                   => &mut self.gossip_msg.hall_orders,
         };
         if !target.contains(&order) {
             target.push(order);
-            self.state.counter += 1;
+            self.gossip_msg.counter += 1;
         }
     }
 
@@ -147,18 +147,18 @@ impl Network {
         let cleared = self.collect_cleared_orders(gossip);
         for peer in gossip {
             for order in &peer.hall_orders {
-                if !cleared.contains(order) && !self.state.hall_orders.contains(order) {
-                    self.state.hall_orders.push(order.clone());
+                if !cleared.contains(order) && !self.gossip_msg.hall_orders.contains(order) {
+                    self.gossip_msg.hall_orders.push(order.clone());
                 }
             }
         }
 
-        let my_id = self.state.id.clone();
-        self.state.peer_cab_orders.insert(my_id.clone(), self.state.cab_orders.clone());
+        let my_id = self.gossip_msg.id.clone();
+        self.gossip_msg.peer_cab_orders.insert(my_id.clone(), self.gossip_msg.cab_orders.clone());
         for peer in gossip {
             for (id, cabs) in &peer.peer_cab_orders {
                 if id == &my_id { continue; }
-                let entry = self.state.peer_cab_orders.entry(id.clone()).or_default();
+                let entry = self.gossip_msg.peer_cab_orders.entry(id.clone()).or_default();
                 for order in cabs {
                     if !entry.contains(order) {
                         entry.push(order.clone());
@@ -171,8 +171,8 @@ impl Network {
     pub fn tick_cleared_order(&mut self) {
         if let Some(expire_at) = self.cleared_at {
             if tokio::time::Instant::now() >= expire_at {
-                self.state.cleared_order = None;
-                self.state.counter += 1;
+                self.gossip_msg.cleared_order = None;
+                self.gossip_msg.counter += 1;
                 self.cleared_at = None;
             }
         }

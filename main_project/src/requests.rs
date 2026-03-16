@@ -122,9 +122,9 @@ impl RequestAssigner {
                 Ok(Ok(peer)) if peer.id != my_id => {
                     if let Some(cabs) = peer.peer_cab_orders.get(&my_id) {
                         for order in cabs {
-                            if !network.state.cab_orders.contains(order) {
-                                network.state.cab_orders.push(order.clone());
-                                network.state.counter += 1;
+                            if !network.gossip_msg.cab_orders.contains(order) {
+                                network.gossip_msg.cab_orders.push(order.clone());
+                                network.gossip_msg.counter += 1;
                             }
                         }
                     }
@@ -163,13 +163,13 @@ impl RequestAssigner {
 
         if self.role != new_role {
             self.role = new_role.clone();
-            network.state.counter += 1;
+            network.gossip_msg.counter += 1;
         }
-        network.state.role = new_role;
+        network.gossip_msg.role = new_role;
     }
 
     fn remove_cleared_from_tracking(&mut self, gossip: &[GossipMsg], network: &mut Network) {
-        let all_cleared: Vec<Order> = std::iter::once(&network.state)
+        let all_cleared: Vec<Order> = std::iter::once(&network.gossip_msg)
             .chain(gossip.iter())
             .filter_map(|p| p.cleared_order.clone())
             .collect();
@@ -178,7 +178,7 @@ impl RequestAssigner {
             for peer in self.cached_peers.values_mut() {
                 peer.hall_orders.retain(|o| o != cleared);
             }
-            for orders in network.state.assignments.values_mut() {
+            for orders in network.gossip_msg.assignments.values_mut() {
                 orders.retain(|o| o != cleared);
             }
             for orders in self.last_published_assignments.values_mut() {
@@ -202,7 +202,7 @@ impl RequestAssigner {
 
     pub async fn run_as_master(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorGuard>) {
         self.remove_cleared_from_tracking(gossip, network);
-        self.build_cost_input(&network.state);
+        self.build_cost_input(&network.gossip_msg);
         if !self.new_peer_joined {
             self.mask_assigned_orders();
         }
@@ -224,20 +224,20 @@ impl RequestAssigner {
 
         if merged != self.last_published_assignments {
             self.last_published_assignments = merged.clone();
-            network.state.assignments = merged;
-            network.state.counter += 1;
+            network.gossip_msg.assignments = merged;
+            network.gossip_msg.counter += 1;
         }
         self.new_peer_joined = false;
 
         let my_id = network.id().to_string();
-        let hall_assigned = network.state.assignments.get(&my_id).cloned().unwrap_or_default();
+        let hall_assigned = network.gossip_msg.assignments.get(&my_id).cloned().unwrap_or_default();
         let mut my_orders = hall_assigned;
-        for cab in &network.state.cab_orders {
+        for cab in &network.gossip_msg.cab_orders {
             if !my_orders.contains(cab) { my_orders.push(cab.clone()); }
         }
 
         fsm.set_queue(&my_orders).await;
-        fsm.set_button_light(&network.state.hall_orders, &network.state.cab_orders).await;
+        fsm.set_button_light(&network.gossip_msg.hall_orders, &network.gossip_msg.cab_orders).await;
     }
 
     pub async fn run_as_slave(&mut self, gossip: &[GossipMsg], network: &mut Network, fsm: Arc<ElevatorGuard>) {
@@ -250,32 +250,32 @@ impl RequestAssigner {
 
             let mut my_orders: Vec<Order> = assigned
                 .into_iter().flatten().filter(not_cleared).cloned().collect();
-            for cab in network.state.cab_orders.iter().filter(not_cleared) {
+            for cab in network.gossip_msg.cab_orders.iter().filter(not_cleared) {
                 if !my_orders.contains(cab) { my_orders.push(cab.clone()); }
             }
 
             fsm.set_queue(&my_orders).await;
 
             let hall: Vec<Order> = master.hall_orders.iter().filter(not_cleared).cloned().collect();
-            let cab:  Vec<Order> = network.state.cab_orders.iter().filter(not_cleared).cloned().collect();
+            let cab:  Vec<Order> = network.gossip_msg.cab_orders.iter().filter(not_cleared).cloned().collect();
             fsm.set_button_light(&hall, &cab).await;
         } else {
-            fsm.set_queue(&network.state.cab_orders).await;
+            fsm.set_queue(&network.gossip_msg.cab_orders).await;
         }
     }
 
     pub fn clear_completed_orders_from_gossip(&mut self, gossip: &[GossipMsg], network: &mut Network) {
-        let my_id = &network.state.id.clone();
+        let my_id = &network.gossip_msg.id.clone();
 
         for peer in gossip {
             if let Some(cleared) = &peer.cleared_order {
-                network.state.hall_orders.retain(|o| o != cleared);
+                network.gossip_msg.hall_orders.retain(|o| o != cleared);
 
                 if &peer.id == my_id {
-                    network.state.cab_orders.retain(|o| o != cleared);
+                    network.gossip_msg.cab_orders.retain(|o| o != cleared);
                 }
 
-                if let Some(cabs) = network.state.peer_cab_orders.get_mut(&peer.id) {
+                if let Some(cabs) = network.gossip_msg.peer_cab_orders.get_mut(&peer.id) {
                     cabs.retain(|o| o != cleared);
                 }
 

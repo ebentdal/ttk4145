@@ -82,7 +82,7 @@ pub struct GossipMsg {
 }
 
 pub struct Network {
-    pub state: GossipMsg,
+    pub gossip_msg: GossipMsg,
     pub incoming: tokio::sync::broadcast::Sender<GossipMsg>,
     pub udp_tx: Sender<GossipMsg>,
     pub cleared_at: Option<Instant>,
