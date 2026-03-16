@@ -2,10 +2,7 @@ use driver_rust::elevio::elev::Elevator;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
-use crate::config::{
-    NUM_FLOORS, ORDER_TIMEOUT, OBSTRUCTION_TIMEOUT,
-    MOTOR_POLL_INTERVAL, INIT_FLOOR_POLL_INTERVAL, DOOR_POLL_INTERVAL, TASK_POLL_INTERVAL,
-};
+use crate::config::*;
 use crate::types::*;
 use strum::IntoEnumIterator;
 
@@ -103,7 +100,6 @@ impl ElevatorGuard {
             if ahead { has_orders_ahead = true; break; }
         }
         state.direction = if has_orders_ahead { travel_dir } else { Direction::Stop };
-
         Some(served)
     }
 

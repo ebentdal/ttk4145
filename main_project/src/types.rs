@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use tokio::time::{Duration, Instant};
 use strum_macros::EnumIter;
 
-
 pub struct ElevatorFSM {
     pub driver:    Elevator,
     pub floor:     u8,
