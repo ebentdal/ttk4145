@@ -187,8 +187,6 @@ impl ElevatorGuard {
                 }
             };
 
-            let remaining: Vec<u8> = queue.iter().map(|o| o.floor).collect();
-
             drop(queue);
             drop(state);
             if !self.open_door_and_wait().await {

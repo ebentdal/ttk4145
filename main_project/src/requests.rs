@@ -115,13 +115,11 @@ impl RequestAssigner {
         let my_id = network.id().to_string();
         let mut rx = network.incoming.subscribe();
         let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
-        let mut received_any = false;
 
         while tokio::time::Instant::now() < deadline {
             let remaining = deadline - tokio::time::Instant::now();
             match tokio::time::timeout(remaining, rx.recv()).await {
                 Ok(Ok(peer)) if peer.id != my_id => {
-                    received_any = true;
                     if let Some(cabs) = peer.peer_cab_orders.get(&my_id) {
                         for order in cabs {
                             if !network.state.cab_orders.contains(order) {
@@ -151,11 +149,6 @@ impl RequestAssigner {
             self.cached_peers.insert(peer.id.clone(), peer.clone());
         }
         let ttl = self.peer_ttl;
-        let timed_out: Vec<String> = self.last_seen
-            .iter()
-            .filter(|(_, t)| now.duration_since(**t) > ttl)
-            .map(|(id, _)| id.clone())
-            .collect();
 
         self.last_seen.retain(|_, t| now.duration_since(*t) <= ttl);
         self.cached_peers.retain(|id, _| self.last_seen.contains_key(id));
