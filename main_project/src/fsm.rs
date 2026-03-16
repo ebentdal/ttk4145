@@ -168,7 +168,6 @@ impl ElevatorGuard {
             }
 
             if order_start.elapsed() > ORDER_TIMEOUT {
-                println!("[FSM] ORDER TIMEOUT — restarting");
                 Self::stop(&mut state);
                 return OrderResult::Failed;
             }
@@ -189,7 +188,6 @@ impl ElevatorGuard {
             };
 
             let remaining: Vec<u8> = queue.iter().map(|o| o.floor).collect();
-            println!("[FSM] Served f{} {:?} | remaining: {:?}", served.floor, served.order_type, remaining);
 
             drop(queue);
             drop(state);
@@ -223,7 +221,6 @@ impl ElevatorGuard {
             }
             drop(state);
             if obstruction_start.elapsed() > OBSTRUCTION_TIMEOUT {
-                println!("[FSM] OBSTRUCTION TIMEOUT — restarting");
                 return false;
             }
             sleep(DOOR_POLL_INTERVAL).await;

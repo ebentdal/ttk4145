@@ -24,7 +24,6 @@ impl RequestAssigner {
 
     async fn assign_hall_orders(&self) -> HashMap<String, Vec<Order>> {
         let json_str = serde_json::to_string_pretty(&self.message).unwrap();
-        println!("[ASSIGNER] Input: {}", json_str);
 
         let child = Command::new("./hall_request_assigner")
             .arg("--input")
@@ -39,16 +38,10 @@ impl RequestAssigner {
         let output = child.wait_with_output().await.unwrap();
 
         if !output.status.success() {
-            eprintln!(
-                "hall_request_assigner failed. stderr:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
             return HashMap::new();
         }
 
         let raw: HashMap<String, Vec<Vec<bool>>> = serde_json::from_slice(&output.stdout).unwrap();
-        println!("[ASSIGNER] Raw output: {:?}", raw);
-
         let assignments = raw.into_iter().map(|(id, per_floor)| {
             let orders = per_floor.iter().enumerate().flat_map(|(floor, cols)| {
                 [
@@ -63,8 +56,6 @@ impl RequestAssigner {
             }).collect();
             (id, orders)
         }).collect();
-
-        println!("[ASSIGNER] Parsed assignments: {:?}", assignments);
         assignments
     }
 
@@ -126,8 +117,6 @@ impl RequestAssigner {
         let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
         let mut received_any = false;
 
-        println!("[RECOVER] Listening for cab orders (max 2s or until first heartbeat)...");
-
         while tokio::time::Instant::now() < deadline {
             let remaining = deadline - tokio::time::Instant::now();
             match tokio::time::timeout(remaining, rx.recv()).await {
@@ -136,7 +125,6 @@ impl RequestAssigner {
                     if let Some(cabs) = peer.peer_cab_orders.get(&my_id) {
                         for order in cabs {
                             if !network.state.cab_orders.contains(order) {
-                                println!("[RECOVER] Cab order f{} from peer {}", order.floor, peer.id);
                                 network.state.cab_orders.push(order.clone());
                                 network.state.counter += 1;
                             }
@@ -148,12 +136,6 @@ impl RequestAssigner {
                 Err(_) => break,    
                 _ => {}
             }
-        }
-
-        if received_any {
-            println!("[RECOVER] Received heartbeat, recovery complete");
-        } else {
-            println!("[RECOVER] No heartbeat received within 2s, proceeding without recovery");
         }
     }
 
@@ -175,12 +157,6 @@ impl RequestAssigner {
             .map(|(id, _)| id.clone())
             .collect();
 
-        for id in &timed_out {
-            if self.last_published_assignments.remove(id).is_some() {
-                println!("[ELECTION] Peer {} timed out — reassigning their orders", id);
-            }
-        }
-
         self.last_seen.retain(|_, t| now.duration_since(*t) <= ttl);
         self.cached_peers.retain(|id, _| self.last_seen.contains_key(id));
 
@@ -193,7 +169,6 @@ impl RequestAssigner {
         let new_role = if elected == self.id { Roles::Master } else { Roles::Slave };
 
         if self.role != new_role {
-            println!("Role change: {:?} → {:?} (master: {})", self.role, new_role, elected);
             self.role = new_role.clone();
             network.state.counter += 1;
         }
@@ -239,9 +214,6 @@ impl RequestAssigner {
             self.mask_assigned_orders();
         }
 
-        println!("[MASTER] peers: {} | unassigned hall_requests: {:?}",
-            self.cached_peers.len(), self.message.hall_requests);
-
         let has_new_hall_orders = self.message.hall_requests.iter().any(|r| r[0] || r[1]);
         let new_assignments = if has_new_hall_orders || self.new_peer_joined {
             self.assign_hall_orders().await
@@ -266,8 +238,6 @@ impl RequestAssigner {
 
         let my_id = network.id().to_string();
         let hall_assigned = network.state.assignments.get(&my_id).cloned().unwrap_or_default();
-        println!("[MASTER {}] Assigned hall orders: {:?}", my_id, hall_assigned);
-
         let mut my_orders = hall_assigned;
         for cab in &network.state.cab_orders {
             if !my_orders.contains(cab) { my_orders.push(cab.clone()); }
@@ -284,7 +254,6 @@ impl RequestAssigner {
         if let Some(master) = gossip.iter().find(|p| matches!(p.role, Roles::Master)) {
             let my_id = network.id().to_string();
             let assigned = master.assignments.get(&my_id);
-            println!("[SLAVE {}] Assigned hall orders from master: {:?}", my_id, assigned);
 
             let mut my_orders: Vec<Order> = assigned
                 .into_iter().flatten().filter(not_cleared).cloned().collect();
@@ -299,7 +268,6 @@ impl RequestAssigner {
             fsm.set_button_light(&hall, &cab).await;
         } else {
             fsm.set_queue(&network.state.cab_orders).await;
-            println!("[SLAVE] No master found in peer list");
         }
     }
 

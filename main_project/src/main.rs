@@ -43,7 +43,6 @@ async fn main() {
 
     loop {
         if fail_rx.try_recv().is_ok() {
-            println!("[MAIN] Failure detected — stopping motor and restarting");
             fsm.emergency_stop().await;
             restart_self();
         }
@@ -61,7 +60,6 @@ async fn main() {
         }
 
         while let Ok(order) = completed_rx.try_recv() {
-            println!("[MAIN] Order completed: f{} {:?}", order.floor, order.order_type);
             network.order_completed(order);
         }
 

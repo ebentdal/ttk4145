@@ -14,7 +14,6 @@ impl Network {
             .local_addr()
             .unwrap()
             .ip();
-        println!("Local IP: {}", local_ip);
 
         let (incoming, udp_tx) = Self::start_channels().await;
         let state = GossipMsg {
@@ -39,7 +38,6 @@ impl Network {
         let (udp_recv_tx, udp_recv_rx) = cbc::unbounded::<GossipMsg>();
 
         std::thread::spawn(move || {
-            println!("[UDP] Starting RX on port {}", MSG_PORT);
             match udpnet::bcast::rx(MSG_PORT, udp_recv_tx) {
                 Ok(_)  => println!("[UDP] RX done"),
                 Err(e) => eprintln!("[UDP] RX failed: {:?}", e),
