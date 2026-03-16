@@ -152,6 +152,7 @@ impl RequestAssigner {
 
         self.last_seen.retain(|_, t| now.duration_since(*t) <= ttl);
         self.cached_peers.retain(|id, _| self.last_seen.contains_key(id));
+        self.last_published_assignments.retain(|id, _| self.last_seen.contains_key(id));
 
         let elected = self.last_seen
             .keys()
