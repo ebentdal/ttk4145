@@ -10,7 +10,7 @@ Distributed elevator control system written in Rust, supporting 1–3 elevators 
 
 ```bash
 # Terminal 1 – start the elevator simulator
-~/Downloads/SimElevatorServer --port 15657
+~SimElevatorServer --port 15657
 
 # Terminal 2 – run the controller (default port 15657)
 cd main_project && cargo run
