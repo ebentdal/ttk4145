@@ -1,6 +1,6 @@
 # ttk4145_elevatorlab
 
-Project in Sanntidssystemer (Real-Time Systems) by August Lind, Espen Johnsen Bentdal and Oliver Wahlen.
+Project in Sanntidsprogrammering (Real-Time Programming) by August Lind, Espen Johnsen Bentdal and Oliver Wahlen.
 
 Distributed elevator control system written in Rust, supporting 1–3 elevators across 4 floors.
 
