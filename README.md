@@ -33,16 +33,20 @@ sudo kill $PID
 The system is built around three concurrent components running inside a single Tokio async runtime:
 
 ```mermaid
-graph TD
-    A["main loop (50ms tick)"] -->|set_queue| FSM[ElevatorFSM]
-    A -->|broadcast/collect| NET["Network (UDP gossip)"]
-    FSM -->|completed_rx| A
-    FSM -->|button_rx| A
-    FSM -->|fail_rx| A
+graph LR
+    A["main loop (50ms)"]
+    FSM[ElevatorFSM]
+    NET["Network (UDP)"]
+    RA[RequestAssigner]
+    HRA["hall_request_assigner"]
+
+    A -->|set_queue| FSM
+    FSM -->|"completed_rx, button_rx, fail_rx"| A
+    A -->|broadcast| NET
     NET -->|gossip| A
-    A -->|run_election| RA[RequestAssigner]
+    A -->|run_election| RA
     A -->|run_as_master/slave| RA
-    RA -->|hall_request_assigner| RA
+    RA <--> HRA
 ```
 
 ### Modules
